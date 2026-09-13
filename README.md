@@ -4,6 +4,8 @@ A shared board of who knows whom, for [Foundry Virtual Tabletop](https://foundry
 
 It works with any game system.
 
+![A relationship map: portraits joined by coloured, captioned lines, with board tabs along the top and Add someone at the bottom](docs/images/relationship-map.webp)
+
 ## Features
 
 - **Maps and boards.** A world can hold several maps, and each map can hold several named boards ("The Court", "The Docks", "Who owes whom"). Each board has its own people, its own lines and its own layout, and the same person can stand on more than one.
