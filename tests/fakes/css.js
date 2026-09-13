@@ -1,0 +1,190 @@
+/**
+ * Reading the shipped stylesheet and templates from a test.
+ *
+ * A family of tests asserts on what a CSS rule DECLARES rather than on how it renders — the traps
+ * they guard (a mask with no `mask-size`, a modifier that sorts before its base, a glyph whose
+ * aspect ratio no longer matches its viewBox) all fail silently in a browser: the element still
+ * lays out, still hovers, still clicks, and nothing is logged. Each of those tests had grown its
+ * own copy of the reader and the selector scan, and they had drifted into three different
+ * implementations of what looked like one function.
+ *
+ * TWO scans live here, because the tests genuinely want two different questions answered, and the
+ * difference is not cosmetic — see `declarations` and `soleRule`.
+ *
+ * Both scan the PRELUDE by splitting it on commas and comparing whole entries, rather than by
+ * pattern-matching the selector inside it. The regex form several copies had used
+ * (`(^|[,}])\s*<sel>\s*\{`) silently only matched a selector that happened to be the LAST entry
+ * before the brace, so `.relmap-rail-btn--primary` went unfound in
+ * `.relmap-rail-btn--primary, .relmap-cta { … }` while `.relmap-cta` was found — making an
+ * assertion pass or fail on the ORDER the selectors were listed in.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+/** Read a repo file as text, by repo-relative path. */
+export function readRepo(rel) {
+	return fs.readFileSync(path.resolve(ROOT, rel), "utf8");
+}
+
+/** An absolute path to a repo file, by repo-relative path. Local: nothing outside needs one. */
+function repoPath(rel) {
+	return path.resolve(ROOT, rel);
+}
+
+/**
+ * Does this repo-relative path exist on disk?
+ *
+ * The other half of what these tests need alongside `readRepo`: several assert that a path
+ * NAMED in source (a sheet's `template`, a preloaded partial, a deleted template that must stay
+ * deleted) really is or is not a file. Doing that by hand meant every such test carrying its own
+ * `fs`, `path` and `fileURLToPath` imports plus a `HERE` whose `../..` depth had to match where
+ * the file happened to sit — which is the drift this module exists to stop.
+ */
+export function repoFileExists(rel) {
+	return fs.existsSync(repoPath(rel));
+}
+
+/**
+ * Source with its comments taken out — Handlebars, block and line — so a guard reads the CODE
+ * rather than the prose above it.
+ *
+ * The tests that need this are the ones asserting a thing is NOT done any more (no `target`,
+ * no `<a>`, no chevron bullet), and those files invariably explain the very practice they
+ * forbid in the comment right above the replacement. Left in, the comment answers for the
+ * code and the guard passes on its own rationale.
+ *
+ * One implementation rather than the copy each such test used to carry: they had drifted into
+ * stripping different subsets, so which comment syntax was honoured depended on which file you
+ * were in.
+ */
+export function stripComments(src) {
+	return src
+		.replace(/\{\{!--[\s\S]*?--\}\}/g, "")
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/\/\/[^\n]*/g, "");
+}
+
+/**
+ * The stylesheet with comments stripped — a commented-out rule must not answer for a live one,
+ * and these comments are long and full of commas and braces, so a selector list read out of the
+ * raw text would swallow the paragraph above its rule.
+ *
+ * Block comments only, deliberately: `//` is not a comment in CSS, and a `url(//host/…)` or a
+ * data URI run through `stripComments` would lose the rest of its line.
+ */
+export function readCss(rel = "styles/relationship-map.css") {
+	return readRepo(rel).replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+/**
+ * The last value declared for one property in a rule body, whitespace-collapsed, or null. Split on
+ * `;` only, so a declaration that lost its semicolon reads as swallowing the next one and fails.
+ */
+export function declared(body, prop) {
+	const found = [...body.matchAll(new RegExp(String.raw`(?:^|[;{])\s*${prop}\s*:([^;]+)`, "g"))]
+		.map(m => m[1].trim().replace(/\s+/g, " "));
+	return found.length ? found.at(-1) : null;
+}
+
+/**
+ * CSS specificity as `[ids, classes, elements]`.
+ *
+ * Counts attribute selectors and single-colon pseudo-classes as classes, which is the cascade's
+ * own reading. An APPROXIMATION in one respect, carried over unchanged from the three identical
+ * copies this replaces (each of which carried a comment pointing at one of the others): a `::`
+ * pseudo-element is stripped rather than counted as an element. Every selector these suites
+ * compare is distinguished well before that digit, so it has never been the deciding one.
+ */
+export function specificity(selector) {
+	const ids = (selector.match(/#[\w-]+/g) || []).length;
+	const classes = (selector.match(/\.[\w-]+/g) || []).length
+		+ (selector.match(/\[[^\]]*\]/g) || []).length
+		+ (selector.match(/(?<!:):(?!:)[\w-]+/g) || []).length;
+	const elements = (selector
+		.replace(/[.#][\w-]+/g, "")
+		.replace(/\[[^\]]*\]/g, "")
+		.replace(/::?[\w-]+/g, "")
+		.match(/\b[a-zA-Z][\w-]*/g) || []).length;
+	return [ids, classes, elements];
+}
+
+/** Whether specificity `a` wins over `b` outright (ties are NOT a win — source order settles those). */
+export const beats = (a, b) => (a[0] - b[0] || a[1] - b[1] || a[2] - b[2]) > 0;
+
+/**
+ * Split a selector list on the commas that SEPARATE its entries, stepping over the ones inside
+ * `:is(…)` / `:where(…)` / `:not(…)`.
+ *
+ * A plain `split(",")` tears `:is(#chat, #chat-notifications, #chat-popout) .message .x` into
+ * three fragments, none of which is a selector anyone would assert about — so every rule written
+ * with `:is()` was invisible to `declarations` and `ownRule`, and the tests that needed one had
+ * to hand-roll their own scanner instead. Three had, and they had drifted into three behaviours.
+ */
+export function splitSelectorList(prelude) {
+	const out = [];
+	let depth = 0;
+	let start = 0;
+	for (let i = 0; i < prelude.length; i++) {
+		const ch = prelude[i];
+		if (ch === "(") depth++;
+		else if (ch === ")") depth--;
+		else if (ch === "," && depth === 0) { out.push(prelude.slice(start, i)); start = i + 1; }
+	}
+	out.push(prelude.slice(start));
+	// Newlines and tabs inside a wrapped selector are whitespace like any other, so a selector
+	// written across two lines answers to the one-line spelling a test asks with.
+	return out.map(s => s.trim().replace(/\s+/g, " ")).filter(Boolean);
+}
+
+/** Every rule whose prelude names `selector` as a whole comma-separated entry, in source order. */
+function rulesNaming(css, selector) {
+	const found = [];
+	const want = selector.trim().replace(/\s+/g, " ");
+	for (const [, prelude, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+		if (splitSelectorList(prelude).includes(want)) found.push({ prelude, body });
+	}
+	return found;
+}
+
+/**
+ * EVERY declaration that reaches `selector`, across every rule that names it — including the
+ * rules where it is one entry in a shared selector list — joined.
+ *
+ * This is what most assertions want. Two surfaces that share an affordance share its declarations
+ * (`.relmap-rail-btn--primary, .relmap-cta { … }` gives both one filled face), so a rule matters
+ * here whether the selector stands
+ * alone before the brace or sits in a group. Asking only after the standalone rule would find
+ * nothing but the local overrides beside it.
+ *
+ * Returns null when no rule names the selector at all, so "the rule is gone entirely" still fails
+ * rather than quietly matching an empty string.
+ */
+export function declarations(css, selector) {
+	const found = rulesNaming(css, selector).map(r => r.body);
+	return found.length ? found.join("\n") : null;
+}
+
+/**
+ * What is written about this surface ITSELF: the rules whose prelude is the selector and nothing
+ * else — falling back to `declarations` when it has no rule of its own.
+ *
+ * This is the tool for a NEGATIVE assertion ("positioned, but must NOT clip"; "must NOT round its
+ * own corners"). The union is wrong there, because it drags in the shared base rule the surface
+ * sits in alongside its siblings — and those bases legitimately declare the very properties the
+ * local rule is being checked for the absence of. A surface inside a shared base is the case that
+ * proves it: its own rule can rightly leave a property unset while the base it shares sets it.
+ *
+ * The fallback matters just as much: a surface can be styled ENTIRELY through shared lists, and
+ * answering null for one would silently turn every assertion
+ * about it into a vacuous pass.
+ */
+export function ownRule(css, selector) {
+	const want = selector.trim().replace(/\s+/g, " ");
+	const own = rulesNaming(css, selector)
+		.filter(r => splitSelectorList(r.prelude).length === 1 && splitSelectorList(r.prelude)[0] === want)
+		.map(r => r.body);
+	return own.length ? own.join("\n") : declarations(css, selector);
+}

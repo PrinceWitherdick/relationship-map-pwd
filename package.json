@@ -1,0 +1,21 @@
+{
+  "name": "relationship-map-pwd",
+  "private": true,
+  "description": "Relationship Map - by PWD: a system-agnostic Foundry VTT module for a shared board of who knows whom.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "eslint-plugin-promise": "^7.3.0",
+    "globals": "^17.11.0",
+    "handlebars": "^4.7.9",
+    "vitest": "^4.1.11"
+  },
+  "license": "MIT"
+}

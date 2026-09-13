@@ -1,0 +1,10 @@
+# LF everywhere, whatever a contributor's core.autocrlf says. `text=auto` lets git tell binary from
+# text, and `eol=lf` keeps a Windows checkout from churning every line ending.
+* text=auto eol=lf
+
+# Binary assets, pinned so auto-detection can never guess wrong and mangle one.
+*.png   binary
+*.jpg   binary
+*.webp  binary
+*.woff  binary
+*.woff2 binary
