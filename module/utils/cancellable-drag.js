@@ -40,7 +40,15 @@ export function beginCancellableDrag(cancel) {
 	ensureEscapeWatcher();
 }
 
-/** Disarm Escape-to-cancel. Safe to call when no drag is live, so it can sit in a shared exit. */
-export function endCancellableDrag() {
+/**
+ * Disarm Escape-to-cancel. Safe to call when no drag is live, so it can sit in a shared exit.
+ *
+ * ⚠ ONLY THE DRAG IT IS HANDED, when it is handed one. There is one slot for the whole page and a
+ * board per open map window, and every board's exit calls this -- including the teardown a re-render
+ * runs. Cleared unconditionally, a second map window re-rendering mid-drag took Escape away from the
+ * drag under way in the first, and that Escape went on to core's dismiss and closed every window.
+ */
+export function endCancellableDrag(cancel = null) {
+	if (cancel && activeDragCancel !== cancel) return;
 	activeDragCancel = null;
 }

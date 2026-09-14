@@ -470,6 +470,14 @@ export class RelmapTieBar {
 		 */
 		this._inkPending = "";
 		/**
+		 * ⚠ WHETHER THE READER ASKED FOR THE PICKER, with the `+`. The paint decides for itself whether a
+		 * line's colour wants the picker showing -- a colour nobody named does, one the palette offers
+		 * does not -- and a repaint asking it again mid-choice put away the picker a reader had just
+		 * opened on a named colour, focus and all, because somebody at the far end of the table moved a
+		 * portrait. Asked for, it stands until a colour is pressed or the palette it lives in goes.
+		 */
+		this._hexAsked = false;
+		/**
 		 * ⚠ WHETHER THIS BAR IS THE ONE WRITING TO THE PICKER RIGHT NOW.
 		 *
 		 * `HTMLColorPickerElement` dispatches `change` from its own `value` setter, so painting the
@@ -663,18 +671,16 @@ export class RelmapTieBar {
 		}
 		// A LETTER TYPED FROM ANYWHERE ON THE BAR GOES ON THE LINE. See `_typeInto`.
 		if (this._typeInto(ev)) return;
-		// Everything else the field takes is the field's own business, and none of it is the
-		// scene's. Only the arrows and Delete would otherwise reach the canvas, but a list of keys
-		// to stop is a list to keep in step with core; the field simply keeps what it is given.
-		if (ev.target === this.words) ev.stopPropagation();
-		// The picker's hex field is a text field like the caption, and its keys are its own.
-		else if (this.inkHex?.contains?.(ev.target)) ev.stopPropagation();
-		// ⚠ AND SO ARE THE SIZE FIELD'S, WHICH INCLUDES ITS UP AND DOWN. Those are how a number
-		// field is stepped, and they are also what `_groupKey` moves the focus with and what core
-		// pans the scene behind this window with. `_groupKey` has already let them past -- the
-		// field is not a press and carries no `data-relmap-tie` value -- so all that is left is to
-		// stop them here, or the reader nudging a size up would pan the map underneath it.
-		else if (ev.target === this.sizeNum) ev.stopPropagation();
+		// ⚠ AND EVERY OTHER KEY PRESSED ON THE BAR IS THE BAR'S, WHATEVER HAS THE FOCUS ON IT. The fields
+		// keep what they are given -- the caption's and the picker's own keys, and the size field's up and
+		// down, which are how a number is stepped -- and none of that is the scene's. Nor is a key pressed
+		// on one of the presses, and that is the half that used to leak: a button outside a form is not
+		// focus as far as core's KeyboardManager is concerned, so Delete on the trash, or on a swatch, went
+		// on to core's own binding and deleted whatever tokens the GM had selected on the scene -- with no
+		// confirmation, and the line still standing -- while the arrows on the triggers panned the scene
+		// behind the window. Stopped whole rather than key by key, because a list of keys to stop is a
+		// list to keep in step with core.
+		ev.stopPropagation();
 	}
 
 	/**
@@ -1041,7 +1047,7 @@ export class RelmapTieBar {
 		// forty of them are a press away, that would mean the hex field springing open behind most
 		// picks and the palette growing a row taller for nothing. A colour the reader actually typed
 		// still comes back with the picker showing it, which is where they left it.
-		this._showPicker(!!hex && !this._isPreset(hex), hex);
+		this._showPicker(this._hexAsked || (!!hex && !this._isPreset(hex)), hex);
 	}
 
 	/**
@@ -1373,6 +1379,8 @@ export class RelmapTieBar {
 		for (const one of which ? [which] : TIE_POPS) {
 			const { open, pop } = this._popParts(one);
 			if (!pop) continue;
+			// The picker lives in the palette, so a palette put away takes the reader's ask with it.
+			if (one === "ink") this._hexAsked = false;
 			const was = !pop.hidden;
 			pop.hidden = true;
 			open?.setAttribute?.("aria-expanded", "false");
@@ -1390,6 +1398,7 @@ export class RelmapTieBar {
 	 */
 	_openHex() {
 		if (!this.id || !this._canEdit()) return;
+		this._hexAsked = true;
 		this._showPicker(true, this._currentHex());
 		this.inkHex?.focus?.();
 	}
@@ -1465,6 +1474,8 @@ export class RelmapTieBar {
 	 */
 	_pickInk(value) {
 		if (!this.id || !this._canEdit() || !value) return;
+		// A colour pressed is the answer, so the picker the `+` asked for is not wanted any more.
+		this._hexAsked = false;
 		this._markInk(value);
 		this._inkPending = value;
 		this._defer("ink");

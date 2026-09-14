@@ -1146,6 +1146,20 @@ describe("what is typed into the caption", () => {
 		}
 	});
 
+	// ⚠ AND FROM THE PRESSES, WHICH CORE DOES NOT COUNT AS FOCUS. A button outside a form is no focus to
+	// core's KeyboardManager, so Delete on the trash went on to its own binding and deleted the GM's
+	// selected tokens, and the arrows on a trigger panned the scene behind the window.
+	it("keeps its keys away from the scene from the presses as well", () => {
+		const { bar } = make(dom);
+		bar.open("e1");
+		for (const target of [dom.rub, dom.trigger, dom.more]) {
+			for (const key of ["Delete", "ArrowLeft"]) {
+				const ev = dom.bar.emit("keydown", target, { key });
+				expect(ev.propagationStopped).toBe(true);
+			}
+		}
+	});
+
 	// Clicking straight from one line to another must not throw the sentence away silently.
 	it("writes what was typed before moving to another line", () => {
 		const { bar, handlers } = make(dom);
@@ -1648,6 +1662,19 @@ describe("a repaint underneath the bar", () => {
 		dom.words.value = "half a sen";
 		bar.refresh();
 		expect(dom.words.value).toBe("half a sen");
+	});
+
+	// ⚠ A COLOUR BEING CHOSEN IS NOT PUT AWAY BY SOMEBODY ELSE'S EDIT. The line is drawn in one of the
+	// named colours, for which the paint on its own says "no picker": asked again by a repaint, it hid
+	// the picker the reader had just opened with the `+`, focus and all.
+	it("leaves standing the picker the reader has just opened", () => {
+		const { bar } = make(dom);
+		bar.open("e1");
+		openPop(dom);
+		dom.more.emit("click", dom.more);
+		expect(dom.picker.hidden).toBe(false);
+		bar.refresh();
+		expect(dom.picker.hidden).toBe(false);
 	});
 
 	it("lets go of a line somebody else has rubbed out", () => {
