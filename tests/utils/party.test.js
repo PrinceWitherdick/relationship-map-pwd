@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { isPartyMember, partyCharacters } from "../../module/utils/party.js";
+import { partyCharacters } from "../../module/utils/party.js";
 
 // Who counts as a player character, in a world this module knows nothing else about. The rules are
 // in the header of module/utils/party.js, and each one gets a small world of its own here.
@@ -90,16 +90,5 @@ describe("partyCharacters", () => {
 	it("answers an empty party in a world with nobody in it", () => {
 		world();
 		expect(partyCharacters()).toEqual([]);
-	});
-});
-
-describe("isPartyMember", () => {
-	it("says yes for the party and no for anybody else", () => {
-		const pim = actor("pim", "Pim");
-		const ezra = actor("ezra", "Ezra", "npc");
-		world({ actors: [pim, ezra], users: [user("Alex", { character: pim })] });
-		expect(isPartyMember(pim)).toBe(true);
-		expect(isPartyMember(ezra)).toBe(false);
-		expect(isPartyMember(null)).toBe(false);
 	});
 });

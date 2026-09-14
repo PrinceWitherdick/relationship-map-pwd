@@ -43,13 +43,14 @@ export function partyCharacters() {
 	return [...byId.values()].sort(byName);
 }
 
-/** Is this actor one of the party, by the same rule? */
-export function isPartyMember(actor) {
-	if (!actor?.id) return false;
-	return partyCharacters().some(member => member.id === actor.id);
-}
-
-function byName(a, b) {
+/**
+ * People in the order every list of them is shown in: by name, ties broken by id.
+ *
+ * EXPORTED rather than written again wherever people are sorted (utils/people-groups.js), because the
+ * point of it is that every list agrees -- and a second copy is how a fix to one ordering never reaches
+ * the other.
+ */
+export function byName(a, b) {
 	const an = String(a?.name ?? "");
 	const bn = String(b?.name ?? "");
 	return an === bn ? String(a?.id ?? "").localeCompare(String(b?.id ?? "")) : an.localeCompare(bn);

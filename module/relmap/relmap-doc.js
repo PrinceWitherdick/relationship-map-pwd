@@ -95,17 +95,6 @@ export function listRelationshipMaps() {
 		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/**
- * Is there a map in this world at all?
- *
- * Separate from {@link listRelationshipMaps} because a caller that only wants the yes/no can be on a
- * render path, and the list pays a full walk of the journal plus a `localeCompare` sort to
- * answer a question the first hit settles.
- */
-export function hasRelationshipMap() {
-	return (game.journal?.contents ?? []).some(entry => !!entry.getFlag?.(MODULE_ID, RELMAP_FLAG));
-}
-
 /** One map by id, or null when it is not one of ours. */
 export function getRelationshipMap(id) {
 	const entry = game.journal?.get?.(id) ?? null;
@@ -446,12 +435,6 @@ export function mapPageName(raw) {
  * only one that needs nothing else to be valid; nobody ever renders it as prose, since the entry's
  * sheet class bounces every click straight to the board (journal/RelationshipMapEntrySheet.js).
  *
- * `marks` IS TAKEN HERE rather than merged by the caller, and that is not tidiness. A caller that
- * spells its own `flags` out overwrites this whole object, so it has to restate the graph as well
- * as its mark -- and `createPartyPage`, which did, was building the seeded graph twice over with
- * only the second copy surviving. One place builds the scope's object; a caller says what to put
- * beside the board in it.
- *
  * ⚠ A NEW BOARD IS BORN HIDDEN FROM THE PLAYERS, and this is the one place that is decided. What a
  * board is FOR is a picture the GM is still working out: who the party has not met yet, who is
  * lying to whom, who answers to something the players have not found yet. A board that arrived
@@ -461,15 +444,14 @@ export function mapPageName(raw) {
  *
  * `shown: true` is for the one board that is not new: the version 1 conversion, which is moving a
  * board the table could already see and must not take it away from them. */
-function mapPageData(name, graph, sort, marks = {}, { shown = false } = {}) {
+function mapPageData(name, graph, sort, { shown = false } = {}) {
 	const levels = ownershipLevels();
 	// ⚠ THE MAKER'S OWN GRANT IS WRITTEN HERE and not left to the server. Core's `_preCreate` adds
-	// `ownership[creator] = OWNER` to a document it is handed on its own, which covers the "+" on an
-	// open map; it does NOT reach a page created INSIDE its parent's create, which is how a map's
-	// first board arrives (`createRelationshipMap`). Left to core, a trusted player making a map
-	// would be handed one whose only board they cannot see. Spelt for every page rather than only
-	// that one, so the two creation paths land on the same document. Core's sanitizer allows a
-	// non-GM to set their OWN key at creation time, and only their own.
+	// `ownership[creator] = OWNER` to a document it is handed on its own, which covers every page
+	// made here today; it does NOT reach a page created inside its parent's create. Spelt out all the
+	// same, because it is the one thing standing between a player who presses "+" and a map that
+	// vanishes the instant it is made, and a creation path core does not stamp would lose it without
+	// a word. Core's sanitizer allows a non-GM to set their OWN key at creation time, and only theirs.
 	const mine = game?.user?.id;
 	return {
 		name: mapPageName(name),
@@ -479,7 +461,7 @@ function mapPageData(name, graph, sort, marks = {}, { shown = false } = {}) {
 			default: shown ? levels.INHERIT : levels.NONE,
 			...(mine ? { [mine]: levels.OWNER } : {}),
 		},
-		flags: { [MODULE_ID]: { [RELMAP_FLAG]: graph, ...marks } },
+		flags: { [MODULE_ID]: { [RELMAP_FLAG]: graph } },
 	};
 }
 
@@ -527,7 +509,7 @@ export async function ensureFirstMapPage(entry) {
 	// read as the conversion having stolen the map, and for whoever happened to open it first rather
 	// than as anybody's decision.
 	const made = await entry.createEmbeddedDocuments?.("JournalEntryPage", [
-		mapPageData(entry.name, carried, 0, {}, { shown: true }),
+		mapPageData(entry.name, carried, 0, { shown: true }),
 	]);
 	const page = made?.[0] ?? null;
 	if (!page) return null;

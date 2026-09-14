@@ -1248,12 +1248,11 @@ export class RelationshipMapWindow extends RelmapDialog {
 
 		this._teardownDrag = wireRelmapDrag(root, {
 			surface: this._surface,
+			// Asked per gesture, as `canEdit` is asked afresh everywhere: ownership can change under an open
+			// board, and a drag that writes to a map the reader may no longer edit is a drag that appears
+			// to work and is silently thrown away. Moving somebody and taking them off are the same
+			// question on this board, which is the drag layer's own default for both.
 			canEdit: () => this.canEdit,
-			// Asked per gesture, like `canEdit` above and for the same reason: ownership can change
-			// under an open board, and a drag that writes to a map the reader may no longer edit is
-			// a drag that appears to work and is silently thrown away.
-			canMove: () => this.canEdit,
-			canRemove: () => this.canEdit,
 			nodeAt: id => {
 				// An unwritten nudge is where the portrait actually is, so it answers first -- and then one
 				// written and not yet back from the server, which the document has not heard about either.

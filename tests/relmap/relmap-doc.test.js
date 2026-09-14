@@ -731,9 +731,8 @@ describe("hiding a board from the players", () => {
 		expect(isMapPageHidden(page)).toBe(true);
 	});
 
-	// ⚠ AND THE MAKER KEEPS THEIRS. Core's server adds this to a document it is handed on its own,
-	// but not to a page created inside its parent's create, which is how a map's first board
-	// arrives: without it a trusted player making a map would be handed one they cannot see.
+	// ⚠ AND THE MAKER KEEPS THEIRS, spelt out rather than left to core: without it a player pressing
+	// "+" would make a map that vanished from their own strip the instant it arrived.
 	it("leaves the board with whoever made it", async () => {
 		asPlayer();
 		const map = mapWith("Stillwater", [{ name: "Stillwater" }]);

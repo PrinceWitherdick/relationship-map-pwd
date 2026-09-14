@@ -3080,19 +3080,6 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
 .relmap-rail-toc-text { flex: 1 1 auto; min-width: 0; }
 
-/* How many rows the panel behind this entry holds (see partials/guide-tabs.hbs). Tabular figures
-   so a column of them lines up, and `flex: none` so a two-digit count crowds the title rather than
-   being squeezed itself — the number is the part that has to stay readable. Muted against the
-   title, and it takes the active entry's accent with the rest of the row. */
-.relmap-rail-toc-count {
-	flex: none;
-	margin-left: 0.4em;
-	font-size: var(--relmap-fs-2xs);
-	font-variant-numeric: tabular-nums;
-	color: var(--relmap-text-faint);
-}
-.relmap-rail-toc-item.is-active .relmap-rail-toc-count { color: inherit; }
-
 /* Active page: subtle fill + accent text/icon (green = active accent per tokens). */
 .relmap-rail-toc-item.is-active .relmap-rail-toc-btn {
 	background: color-mix(in srgb, currentColor 8%, transparent);

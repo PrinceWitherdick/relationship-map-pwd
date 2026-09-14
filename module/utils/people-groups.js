@@ -8,7 +8,7 @@
 //
 // EMPTY LISTS ARE NOT OFFERED. A rail with "Vehicles (0)" on it is a tab that can only disappoint.
 
-import { partyCharacters } from "./party.js";
+import { byName, partyCharacters } from "./party.js";
 import { format, localize } from "./i18n.js";
 
 export const PEOPLE_GROUP_PLAYERS = "players";
@@ -100,14 +100,6 @@ export function groupPeople(people) {
 	return [...groups.values()]
 		.sort((a, b) => (rank(a.key) - rank(b.key)) || a.label.localeCompare(b.label))
 		.map(group => ({ ...group, people: [...group.people].sort(byName) }));
-}
-
-function byName(a, b) {
-	const an = String(a?.name ?? "");
-	const bn = String(b?.name ?? "");
-	return an === bn
-		? String(a?.id ?? "").localeCompare(String(b?.id ?? ""))
-		: an.localeCompare(bn);
 }
 
 function capitalize(text) {
