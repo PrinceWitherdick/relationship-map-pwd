@@ -195,6 +195,9 @@ function windowFor(graph = TWO_PEOPLE, {
 	app.rendered = true;
 	app.render = vi.fn();
 	app.reportWriteFailure = vi.fn();
+	// Which shape the render this stands in for drew, as `getData` would have written it. The page
+	// hooks compare against it to tell a collection gaining its first map from one gaining another.
+	app._boardKind = app._boardState.kind;
 	return {
 		app, entry, root, board, live, empty, emptyLead, emptyHint, emptyCta, foot, strip,
 		view, dropTool, seenTool,
@@ -644,12 +647,18 @@ describe("the lines while a portrait is being dragged", () => {
 	});
 
 	// Once per DRAG, not once per frame: this runs sixty times a second, and re-reading the flag
-	// and re-walking the board each time would learn the same answers over and over.
+	// and re-walking the board each time would learn the same answers over and over. Counted as
+	// "no more reads for eight frames than for one" rather than as a number, because on a version 1
+	// map finding which document the board is on reads the map's flag as well -- once, like the rest.
 	it("reads the map and finds the elements once for the whole gesture", () => {
-		const { app, entry } = boardWithLine();
-		const reads = vi.spyOn(entry, "getFlag");
-		for (let i = 0; i < 8; i++) app._previewMove("elena", { x: 20, y: 30 + i });
-		expect(reads).toHaveBeenCalledTimes(1);
+		const one = boardWithLine();
+		const readOne = vi.spyOn(one.entry, "getFlag");
+		one.app._previewMove("elena", { x: 20, y: 30 });
+		const eight = boardWithLine();
+		const readEight = vi.spyOn(eight.entry, "getFlag");
+		for (let i = 0; i < 8; i++) eight.app._previewMove("elena", { x: 20, y: 30 + i });
+		expect(readOne.mock.calls.length).toBeGreaterThan(0);
+		expect(readEight.mock.calls.length).toBe(readOne.mock.calls.length);
 	});
 
 	// A repaint throws away every element the preview was holding. Kept stale, the next drag would
@@ -2663,6 +2672,40 @@ describe("keeping up with pages being changed elsewhere", () => {
 		expect(app.render).not.toHaveBeenCalled();
 	});
 
+	// ⚠ THE FIRST MAP IN A COLLECTION THAT HAD NONE is a different window rather than a new tab: the
+	// strip's tools, the footer and the board all hang off having a board, and a repaint can only
+	// rewrite markup a render put there.
+	it("renders again when a collection with no maps in it gains its first", () => {
+		const on = hooksOf();
+		const entry = pagedEntry([]);
+		const { app } = windowFor(null, { entry });
+		app._wireSync();
+		const made = pageFor("The Masons", EMPTY_BOARD, { id: "p1", sort: 0, parent: entry });
+		entry.pages.contents.push(made);
+		on.get("createJournalEntryPage")(made);
+		expect(app.render).toHaveBeenCalled();
+	});
+
+	// And only then. A player whose every map is hidden is on no page either, and rendering their
+	// whole window each time the GM makes another hidden map, or files a page of prose on the entry,
+	// redraws a window in which nothing they can see has changed.
+	it("does not render for a page that changes nothing this reader is standing on", () => {
+		globalThis.game.user = { id: "u1", isGM: false };
+		const on = hooksOf();
+		const entry = pagedEntry([{ id: "p1", name: "Stillwater", hidden: true }]);
+		const { app } = windowFor(null, { entry });
+		app._wireSync();
+		const hidden = pageFor("Marshford", EMPTY_BOARD, {
+			id: "p2", sort: 100000, parent: entry, ownership: { default: 0 },
+		});
+		entry.pages.contents.push(hidden);
+		on.get("createJournalEntryPage")(hidden);
+		const prose = pageFor("Notes for tonight", null, { id: "p3", sort: 200000, parent: entry });
+		entry.pages.contents.push(prose);
+		on.get("createJournalEntryPage")(prose);
+		expect(app.render).not.toHaveBeenCalled();
+	});
+
 	// ⚠ A window left pointing at a deleted document goes on looking live while every write it
 	// makes vanishes. The board, its shape and the whole bar belong to another page now, so this is
 	// the one page change that takes a full render.
@@ -2795,6 +2838,29 @@ describe("adding a board from the strip", () => {
 		await app._addPage();
 		expect(entry.pages.contents).toHaveLength(2);
 		expect(app.render).not.toHaveBeenCalled();
+	});
+
+	// ⚠ THE FIRST MAP IN AN EMPTY COLLECTION IS ALREADY THE ONE UP by the time it is gone to: `mapPage`
+	// falls to the only page there is. Taken as a switch to the tab already showing, its news went
+	// unsaid and the focus fell to the page body.
+	it("says the first map in an empty collection has been added, and takes the focus to its tab", async () => {
+		globalThis.game.i18n = TABLE;
+		const entry = pagedEntry([]);
+		const { app } = windowFor(null, { entry });
+		app._askPageName = vi.fn().mockResolvedValue("The Masons");
+		await app._addPage();
+		const made = entry.pages.contents.at(-1);
+		expect(app._sayOnRender).toBe(TABLE.format("RELMAP.pages.added", { name: "The Masons" }));
+		expect(app._focusOnRender).toBe(`[data-relmap-page="${made.id}"]`);
+		expect(app.render).toHaveBeenCalled();
+	});
+
+	// A press on the tab already up, with nothing to say, is still nothing.
+	it("does nothing for a switch to the board already up", () => {
+		const { app } = windowFor(null, { entry: TWO_BOARDS(), pageId: "p1" });
+		app.showPage("p1");
+		expect(app.render).not.toHaveBeenCalled();
+		expect(app._sayOnRender).toBeUndefined();
 	});
 });
 
@@ -3504,8 +3570,9 @@ describe("hiding a board from the players", () => {
 		const { app } = windowFor(null, {
 			entry: pagedEntry([{ id: "p1", name: "Stillwater", hidden: true }]),
 		});
-		expect(app.noBoardForMe).toBe(true);
+		expect(app._boardState.kind).toBe("unshared");
 		expect(app.canEdit).toBe(false);
+		expect(app.boardDoc).toBeNull();
 	});
 
 	// AND SAYS SO IN ITS OWN WORDS. "Nobody is on this map yet" would read as a map that is theirs
@@ -3527,7 +3594,7 @@ describe("hiding a board from the players", () => {
 	it("does not mistake a map that has no pages yet for one that is all hidden", () => {
 		asPlayer();
 		const { app } = windowFor();
-		expect(app.noBoardForMe).toBe(false);
+		expect(app._boardState.kind).not.toBe("unshared");
 		expect(app.canEdit).toBe(true);
 	});
 
@@ -3535,10 +3602,11 @@ describe("hiding a board from the players", () => {
 	// plus rather than "Add someone": there is no board to put anybody on.
 	it("gives a collection with no maps in it nothing to draw on, and the plus to start one", () => {
 		const { app } = windowFor(null, { entry: pagedEntry([]) });
-		expect(app.noMapsYet).toBe(true);
-		expect(app.noBoardForMe).toBe(false);
+		expect(app._boardState.kind).toBe("none");
+		expect(app._boardState.kind).not.toBe("unshared");
 		expect(app.canEdit).toBe(false);
 		expect(app.canAddMap).toBe(true);
+		expect(app.boardDoc).toBeNull();
 		const said = app._chrome(app._plan());
 		expect(said.empty).toBe(true);
 		expect(said.emptyLead).toBe("RELMAP.pages.noneLead");
@@ -3570,6 +3638,28 @@ describe("hiding a board from the players", () => {
 		await app._onToolClick({ currentTarget: { dataset: { relmapAction: "add" } } });
 		expect(app._addPage).toHaveBeenCalled();
 		expect(app._addPerson).not.toHaveBeenCalled();
+	});
+
+	// The strip is there for the plus, and it is not a tab list: there is no tab in it, and a panel
+	// labelled by a tab that does not exist is announced as though something were there.
+	it("claims no tab list for a collection with no maps in it, and one for a collection with maps", async () => {
+		const empty = await windowFor(null, { entry: pagedEntry([]) }).app.getData();
+		expect(empty.showPages).toBe(true);
+		expect(empty.hasPageTabs).toBe(false);
+		const full = await windowFor(null, { entry: TWO_BOARDS() }).app.getData();
+		expect(full.hasPageTabs).toBe(true);
+	});
+
+	// "All 0 of its map(s) and the 0 person(s) standing on them" is the sentence a collection with
+	// nothing in it used to be deleted under.
+	it("asks to delete a collection with no maps in it in words of its own", async () => {
+		asGM();
+		globalThis.game.i18n = TABLE;
+		const { app } = windowFor(null, { entry: pagedEntry([]) });
+		app._confirm = vi.fn().mockResolvedValue(false);
+		await app._removeMap();
+		expect(app._confirm.mock.calls[0][0].body).toBe(
+			TABLE.format("RELMAP.maps.deleteBodyEmpty", { name: "The people of Stillwater" }));
 	});
 
 	// THE GLYPH IS THE STATE AND THE HINT IS THE OUTCOME, which is the only pairing that reads
@@ -3673,7 +3763,7 @@ describe("hiding a board from the players", () => {
 	// standing on" was the wrong question. `_paintPages` can only rewrite a strip that is already
 	// there, and the two readers with no strip are exactly the ones a reveal is for: a player on a
 	// map whose every board is still the GM's own has neither strip nor board, and a player with a
-	// single visible board has no strip either (`showPages` is `canEdit || pages.length > 1`). So
+	// single visible board has no strip either (`showPages` is `canAddMap || pages.length > 1`). So
 	// the GM presses the eye and the first goes on saying "there is nothing here for you to see
 	// yet" while the second never sees the new tab — until they close the window and open it again.
 	//
@@ -3697,12 +3787,12 @@ describe("hiding a board from the players", () => {
 			const entry = pagedEntry([{ id: "p1", name: "Stillwater", hidden: true }]);
 			const { app } = withNoStrip(windowFor(null, { entry }));
 			app._wireSync();
-			expect(app.noBoardForMe).toBe(true);
+			expect(app._boardState.kind).toBe("unshared");
 
 			entry.pages.contents[0].ownership = { default: -1 };
 			on.get("updateJournalEntryPage")(entry.pages.contents[0], SHOW);
 			expect(app.render).toHaveBeenCalled();
-			expect(app.noBoardForMe).toBe(false);
+			expect(app._boardState.kind).not.toBe("unshared");
 		});
 
 		// The second reader with no strip: one board, so there was nothing to choose between. A
@@ -3917,6 +4007,40 @@ describe("a window shut while it was still drawing", () => {
 		} finally {
 			global.Hooks = hooks;
 			shut.mockRestore();
+			drew.mockRestore();
+		}
+	});
+});
+
+describe("a render asked for while another is still drawing", () => {
+	// AppV1 returns at once from a render asked for mid-render, and the first map added to an empty
+	// collection asks for exactly that: its create sets off one render and `showPage` a second. What
+	// the second was asked to say, and where to put the focus, belong to the render still drawing.
+	it("leaves its news and its focus for the render still drawing, and says them once one has drawn", async () => {
+		const { app } = windowFor();
+		const base = Object.getPrototypeOf(RelationshipMapWindow.prototype);
+		const drew = vi.spyOn(base, "_render").mockImplementation(async function () {});
+		try {
+			app._closed = false;
+			app._ensurePage = async () => {};
+			app._announce = vi.fn();
+			app._sayOnRender = "The Masons has been added.";
+			app._focusOnRender = "[data-relmap-page=\"made1\"]";
+
+			app.rendered = false;
+			app._state = Application.RENDER_STATES.RENDERING;
+			await app._render(false, {});
+			expect(app._announce).not.toHaveBeenCalled();
+			expect(app._sayOnRender).toBe("The Masons has been added.");
+			expect(app._focusOnRender).toBe("[data-relmap-page=\"made1\"]");
+
+			app.rendered = true;
+			app._state = Application.RENDER_STATES.RENDERED;
+			await app._render(false, {});
+			expect(app._announce).toHaveBeenCalledWith("The Masons has been added.");
+			expect(app._sayOnRender).toBeNull();
+			expect(app._focusOnRender).toBeNull();
+		} finally {
 			drew.mockRestore();
 		}
 	});
@@ -4372,5 +4496,45 @@ describe("how heavily this reader wants the board drawn", () => {
 		await app._stepWeight(null);
 		expect(board.innerHTML).toBe("");
 		expect(stored[RELMAP_WEIGHT_SETTING]).toBeUndefined();
+	});
+});
+
+describe("who may arrange the maps of a collection", () => {
+	// The README tells players they may add maps to a collection, and one whose every map is hidden from
+	// them is exactly a collection they may want to start one in.
+	it("offers the plus to a player whose every map is hidden from them", () => {
+		globalThis.game.user = { id: "u1", isGM: false };
+		const { app } = windowFor(null, { entry: pagedEntry([{ id: "p1", name: "Stillwater", hidden: true }]) });
+		expect(app._boardState.kind).toBe("unshared");
+		expect(app.canAddMap).toBe(true);
+	});
+
+	// A map is deleted through the collection. Refused only after `forgetHistory`, the reader lost that
+	// map's undo for a map that was still there.
+	it("asks nothing, and forgets nothing, for a map in a collection the reader may not arrange", async () => {
+		const entry = pagedEntry([{ id: "p1", name: "Stillwater", graph: TWO_PEOPLE }], { isOwner: false });
+		// The map is this player's own -- the grant core writes for whoever made it -- in a collection
+		// the GM has since locked. So they can see it and draw on it, and the trash used to show.
+		entry.pages.contents[0].ownership = { default: 0, u1: 3 };
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		expect(app.canEdit).toBe(true);
+		app._confirm = vi.fn().mockResolvedValue(true);
+		await app._removePage();
+		expect(app._confirm).not.toHaveBeenCalled();
+	});
+});
+
+describe("deleting a version 1 map", () => {
+	// Its board is on the entry, and "It has no maps in it" over a board of faces told a GM a destructive
+	// press cost nothing.
+	it("counts the board the entry still carries, and the people on it", async () => {
+		globalThis.game.user = { id: "gm1", isGM: true };
+		globalThis.game.i18n = TABLE;
+		const { app } = windowFor(structuredClone(TWO_PEOPLE));
+		app._confirm = vi.fn().mockResolvedValue(false);
+		await app._removeMap();
+		expect(app._confirm.mock.calls[0][0].body).toBe(TABLE.format("RELMAP.maps.deleteBody", {
+			name: "The people of Stillwater", boards: 1, people: 2,
+		}));
 	});
 });

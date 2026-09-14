@@ -880,6 +880,7 @@ describe("the page strip", () => {
 		// The strip's own context.
 		showPages: true,
 		canAddMap: true,
+		hasPageTabs: true,
 		pageTabs: '<button data-relmap-page="p1" class="relmap-page is-current">Stillwater</button>',
 		pagePanelId: "relmap-map1-page-p1",
 		pagesLabel: "Pages of this map",
@@ -944,6 +945,16 @@ describe("the page strip", () => {
 		for (const action of ["pagehide", "pagerename", "pagedelete"]) {
 			expect(html).not.toContain(`data-relmap-action="${action}"`);
 		}
+	});
+
+	// And no tab roles there either. A tab list with nothing in it, over a panel labelled by a tab that
+	// does not exist, is announced to a screen reader as though something were there.
+	it("claims no tab list and no tab panel on a collection with no maps in it", () => {
+		const html = render(context({ canEdit: false, canAddMap: true, pageTabs: "", hasPageTabs: false }));
+		expect(html).toContain("relmap-pages-strip");
+		expect(html).not.toContain('role="tablist"');
+		expect(html).not.toContain('role="tabpanel"');
+		expect(html).not.toContain("aria-labelledby");
 	});
 
 	// ⚠ THE EYE STANDS TO THE LEFT OF THE PEN, which is not decoration: it is the only one of the

@@ -336,9 +336,9 @@ export function canSeeMapPage(page, user = undefined) {
  *
  * ⚠ THIS AND `listMapPages` ARE NOT INTERCHANGEABLE, and the split is the load-bearing part of the
  * whole feature. Everything a reader SEES goes through this one; everything the document layer
- * REASONS about goes through the raw one. `ensureFirstMapPage` asking this would find no pages on a
- * map whose every board is hidden, helpfully make a fresh one, and sweep the entry's flags on the
- * way past.
+ * REASONS about goes through the raw one. `resolveMapBoard` asks both, because through this one
+ * alone a collection whose every map is hidden from the reader and a collection with no maps in it
+ * at all look exactly the same.
  */
 export function listVisibleMapPages(entry) {
 	return listMapPages(entry).filter(page => canSeeMapPage(page));
@@ -377,12 +377,30 @@ export function getMapPage(entry, pageId) {
 }
 
 /**
- * THE DOCUMENT WHOSE FLAG HOLDS THE BOARD IN FRONT OF THE READER.
+ * Does this map still carry its board ON THE ENTRY, from before boards were pages?
  *
- * The one function the window asks, and the whole of what it has to know about pages existing: on
- * a converted map it is a page, and on a map still on version 1 it is the ENTRY itself, whose flag
- * is still a perfectly good graph. So every read and every write in the window goes through one
- * handle that is always a document, and the legacy shape needs no second code path anywhere.
+ * The one way to tell a version 1 map, whose whole board is the entry's own flag and is perfectly
+ * readable and editable, from a collection that simply has no maps in it yet. Neither has a page;
+ * only the first has anything on the entry to draw on or to carry onto a page (`ensureFirstMapPage`).
+ * A collection made since is marked `{ version }` alone.
+ */
+export function hasLegacyBoard(entry) {
+	const flag = entry?.getFlag?.(MODULE_ID, RELMAP_FLAG);
+	return !!flag && typeof flag === "object" && (flag.nodes != null || flag.edges != null);
+}
+
+/**
+ * WHAT A READER IS STANDING ON IN ONE COLLECTION, and the one place its four shapes are told apart.
+ *
+ * `{ pages, page, doc, kind }`: the maps this reader may look at, the one they are on, the document
+ * that board is read from and written to, and which shape this is --
+ *
+ *  • "page": an ordinary map. `doc` is its page.
+ *  • "legacy": a map still on version 1, whose whole board is the entry's own flag and is perfectly
+ *    readable and editable. `doc` is the ENTRY, and the flag is the same shape there, so the legacy
+ *    board needs no second code path anywhere.
+ *  • "unshared": the collection has maps and none of them is this reader's to see. `doc` is null.
+ *  • "none": the collection has no maps in it at all. `doc` is null.
  *
  * Falls back to the first page when the id names nothing, which is the honest answer to a page
  * being deleted at the far end of the table while this reader was looking at it.
@@ -391,28 +409,25 @@ export function getMapPage(entry, pageId) {
  * visible strip: a player whose GM has just hidden the board under them falls through to the next
  * one they can see, exactly as they would if it had been deleted, rather than to a board that is
  * not theirs to read.
- */
-export function mapBoardDoc(entry, pageId = null) {
-	if (!entry) return null;
-	// ONE WALK OF THE STRIP, not two. This is the handle every read and every write in the window
-	// goes through, so it is asked several times per render and again on every repaint — and asking
-	// `getMapPage` and then falling back to `listVisibleMapPages[0]` filtered and sorted the same
-	// pages twice over each time.
-	const pages = listVisibleMapPages(entry);
-	return pages.find(page => page.id === pageId) ?? pages[0] ?? entry;
-}
-
-/**
- * Does this map still carry its board ON THE ENTRY, from before boards were pages?
  *
- * The one way to tell a version 1 map, whose whole board is the entry's own flag and is perfectly
- * readable and editable, from a collection that simply has no maps in it yet. Both have no pages, and
- * both leave `mapBoardDoc` resolving to the entry; only the first has anything there to draw on or to
- * carry onto a page (`ensureFirstMapPage`). A collection made since is marked `{ version }` alone.
+ * ⚠ NULL WHERE THERE IS NO BOARD, AND NEVER THE ENTRY. On anything but a version 1 map the entry's
+ * flag is only the mark that says it is a collection, and a board resolving to it is a board every
+ * write in the window lands on: a portrait nudged a moment before the last map was rubbed out would
+ * be written into the mark, and the collection would open next time as a version 1 map with a
+ * nameless face on it. With nothing to resolve to, a write has nowhere to go.
+ *
+ * ONE WALK OF THE STRIP. This is what every read and every write in the window goes through, so it
+ * is asked several times per render and again on every repaint; the entry's own flag is only read
+ * for a reader with no page at all.
  */
-export function hasLegacyBoard(entry) {
-	const flag = entry?.getFlag?.(MODULE_ID, RELMAP_FLAG);
-	return !!flag && typeof flag === "object" && (flag.nodes != null || flag.edges != null);
+export function resolveMapBoard(entry, pageId = null) {
+	const all = listMapPages(entry);
+	const pages = all.filter(page => canSeeMapPage(page));
+	const page = pages.find(one => one.id === pageId) ?? pages[0] ?? null;
+	if (page) return { pages, page, doc: page, kind: "page" };
+	if (all.length) return { pages, page: null, doc: null, kind: "unshared" };
+	if (hasLegacyBoard(entry)) return { pages, page: null, doc: entry, kind: "legacy" };
+	return { pages, page: null, doc: null, kind: "none" };
 }
 
 /** A page's name, made safe to store: trimmed, shortened, and never blank — core's `name` field
@@ -482,7 +497,8 @@ function mapPageData(name, graph, sort, marks = {}, { shown = false } = {}) {
  * pages.
  *
  * Returns null, and writes nothing, for a reader who may not edit. They see the entry's own graph
- * instead (`mapBoardDoc` falls back to it), read-only, which is exactly what they had before.
+ * instead (`resolveMapBoard` resolves a version 1 map to it), read-only, which is exactly what they
+ * had before.
  *
  * ONE KNOWN RACE, and it is left alone deliberately: two people opening the same version 1 map
  * within the same round trip both find no pages and both make one, so the board arrives duplicated
@@ -537,7 +553,7 @@ export async function ensureFirstMapPage(entry) {
 export async function createMapPage(entry, name) {
 	if (!canEditRelationshipMap(entry)) return null;
 	// ⚠ THE FIRST BOARD BEFORE THE SECOND. A map still on version 1 has its whole board on the
-	// ENTRY and no page at all, and adding a second board to it would leave `mapBoardDoc` resolving
+	// ENTRY and no page at all, and adding a second board to it would leave `resolveMapBoard` resolving
 	// to the new EMPTY page — the map would look as though pressing "New page" had swept everybody
 	// off it. The window converts on open, but that can have failed (it swallows its error on
 	// purpose, so a map with no page still opens readable), and this is the one call where a

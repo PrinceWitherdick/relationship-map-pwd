@@ -7,7 +7,7 @@
 import { format, localize } from "../utils/i18n.js";
 import { pickContentOption, promptForText } from "../dialogs/content-picker.js";
 import {
-	canCreateRelationshipMap, createRelationshipMap, listRelationshipMaps, listVisibleMapPages,
+	canCreateRelationshipMap, createRelationshipMap, listRelationshipMaps, resolveMapBoard,
 } from "./relmap-doc.js";
 import { defaultBoard } from "./relmap-last.js";
 
@@ -67,12 +67,19 @@ export function mapToOpen(which = null, maps = listRelationshipMaps()) {
  */
 export async function chooseRelationshipMap({ current = null } = {}) {
 	const maps = listRelationshipMaps();
-	const rows = maps.map(entry => ({
-		id: entry.id,
-		label: entry.name,
-		icon: "fa-diagram-project",
-		hint: format("RELMAP.maps.boardCount", { count: Math.max(1, listVisibleMapPages(entry).length) }),
-	}));
+	const rows = maps.map(entry => {
+		// The maps this reader can open, and none for a collection nobody has added one to: nothing is
+		// made for a collection any more. The one map with no page behind it is a version 1 board.
+		// Asked of `resolveMapBoard`, the one place those shapes are told apart, rather than worked out
+		// again here in an order of its own.
+		const { pages, kind } = resolveMapBoard(entry);
+		return {
+			id: entry.id,
+			label: entry.name,
+			icon: "fa-diagram-project",
+			hint: format("RELMAP.maps.boardCount", { count: kind === "legacy" ? 1 : pages.length }),
+		};
+	});
 	if (canCreateRelationshipMap()) {
 		rows.push({
 			id: NEW_MAP_CHOICE,

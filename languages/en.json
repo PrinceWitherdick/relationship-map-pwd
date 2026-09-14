@@ -145,6 +145,7 @@
       "deleteHint": "Delete this whole collection, every map in it and every line drawn. Nobody's actor is touched.",
       "deleteTitle": "Delete this collection?",
       "deleteBody": "{name} will be deleted, along with all {boards} of its map(s) and the {people} person(s) standing on them. Nobody's actor is touched, and this cannot be undone.",
+      "deleteBodyEmpty": "{name} will be deleted. It has no maps in it, and this cannot be undone.",
       "deleteConfirm": "Delete the collection",
       "deleteCancel": "Keep this collection",
       "deleted": "The collection {name} has been deleted.",
@@ -152,7 +153,7 @@
       "chooseTitle": "Collections",
       "chooseGo": "Open",
       "new": "Make a new collection",
-      "newHint": "Start another collection, with a map of its own.",
+      "newHint": "Start another collection. It opens with no maps in it, ready for you to add the first.",
       "boardCount": "{count} map(s)"
     },
     "pages": {

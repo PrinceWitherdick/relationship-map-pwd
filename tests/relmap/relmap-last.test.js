@@ -135,6 +135,22 @@ describe("which board an unasked open lands on", () => {
 		expect(defaultBoard()).toEqual({ entry: marshford, pageId: null });
 	});
 
+	// Nothing is made for a collection any more, so the first by name can be one nobody has added a
+	// map to. A first press landing there is an empty window while the table's maps are one over.
+	it("passes over a collection with nothing in it to look at, for one that has a map", () => {
+		const aldermen = map("m1", "Aldermen");
+		const court = map("m2", "The Court", [page("p1", "The throne room")]);
+		journals = [court, aldermen];
+		expect(defaultBoard()).toEqual({ entry: court, pageId: null });
+	});
+
+	it("still opens the first collection when none of them has a map yet", () => {
+		const aldermen = map("m1", "Aldermen");
+		const court = map("m2", "The Court");
+		journals = [court, aldermen];
+		expect(defaultBoard()).toEqual({ entry: aldermen, pageId: null });
+	});
+
 	it("has nothing to offer in a world with no maps", () => {
 		expect(defaultBoard()).toBeNull();
 	});

@@ -62,11 +62,13 @@
         and the board for every reader who moves by keyboard. --}}
   {{#if showPages}}
   <div class="relmap-pages">
-    <div class="relmap-pages-strip" role="tablist"
-         aria-label="{{pagesLabel}}"
-         {{#if pageOrderHint}}aria-describedby="{{pageOrderHintId}}"{{/if}}>{{{pageTabs}}}</div>
+    {{!-- ⚠ A TAB LIST ONLY WHEN THERE ARE TABS. A collection with no maps in it has the plus beside
+          this and nothing inside it, and an empty `tablist` is announced as a list of nothing. --}}
+    <div class="relmap-pages-strip"
+         {{#if hasPageTabs}}role="tablist" aria-label="{{pagesLabel}}"{{/if}}>{{{pageTabs}}}</div>
     {{!-- HOW THE BOARDS ARE PUT IN AN ORDER, for the readers a `cursor: grab` never reaches. Read
-          out when the strip takes focus and invisible to everybody else, which is the only shape
+          out when a tab takes focus (every tab that can be moved points at it; see `_pageTabs`) and
+          invisible to everybody else, which is the only shape
           this can take: the row's whole job is to say WHICH BOARD IS UP, and a line of instructions
           printed across it would be competing with the answer. See `pageOrderHint`. --}}
     {{#if pageOrderHint}}
@@ -145,10 +147,8 @@
 
       {{!-- ⚠ ALWAYS RENDERED AND HIDDEN, never behind an `{{#if}}`, for the reason the two panels
             over the board are: `_paintPages` can only write onto markup a repaint left standing,
-            and whether the last board may be rubbed out changes whenever anybody at the table adds
-            or removes one. Behind a condition this button would exist on precisely the maps that
-            already had two pages when the window last rendered — so a reader who adds a second
-            page would have no way to remove it again until they reopened the window. --}}
+            and whether there is a board to rub out is written again whenever anybody at the table
+            adds or removes one. Every map may go, the last one in a collection included. --}}
       <button type="button" class="relmap-page-tool relmap-page-tool--drop"
               data-relmap-action="pagedelete" data-tooltip="{{pageDeleteHint}}"
               aria-label="{{pageDeleteHint}}" {{#unless canDropPage}}hidden{{/unless}}>
@@ -166,8 +166,9 @@
         It is also the PANEL the strip above names, which is why it carries the tab roles' other
         half: a `role="tab"` with nothing saying what it controls is a tab in name only. The label
         is rewritten by `_paintPages`, because which tab is selected can change without a render —
-        somebody else deleting the board this reader was standing on moves them to another. --}}
-  <div class="relmap-view" {{#if showPages}}role="tabpanel"
+        somebody else deleting the board this reader was standing on moves them to another. Not on
+        a collection with no maps in it, where there is no tab for it to be labelled by. --}}
+  <div class="relmap-view" {{#if hasPageTabs}}role="tabpanel"
        aria-labelledby="{{pagePanelId}}"{{/if}}>
     <div class="relmap-board">{{{board}}}</div>
 

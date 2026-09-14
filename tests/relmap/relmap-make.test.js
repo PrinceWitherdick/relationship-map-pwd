@@ -12,10 +12,14 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // the remembered board in relmap-last.test.js. What belongs here is only which calls are made, in what
 // order, and under which guard.
 
-const world = { maps: [], canCreate: true, made: { id: "made", name: "" }, pages: {} };
+const world = { maps: [], canCreate: true, made: { id: "made", name: "" }, pages: {}, legacy: {} };
 vi.mock("../../module/relmap/relmap-doc.js", () => ({
 	listRelationshipMaps: vi.fn(() => world.maps),
-	listVisibleMapPages: vi.fn(entry => world.pages[entry.id] ?? []),
+	resolveMapBoard: vi.fn(entry => {
+		const pages = world.pages[entry.id] ?? [];
+		const kind = pages.length ? "page" : world.legacy[entry.id] ? "legacy" : "none";
+		return { pages, page: pages[0] ?? null, doc: pages[0] ?? null, kind };
+	}),
 	canCreateRelationshipMap: vi.fn(() => world.canCreate),
 	createRelationshipMap: vi.fn(name => {
 		if (!world.canCreate) return Promise.resolve(null);
@@ -59,6 +63,7 @@ beforeEach(() => {
 	world.canCreate = true;
 	world.made = { id: "made", name: "" };
 	world.pages = {};
+	world.legacy = {};
 	box.typed = "The Court";
 	box.asked = [];
 	box.picked = null;
@@ -142,6 +147,21 @@ describe("choosing a map", () => {
 		expect(offer.selected).toBe("court");
 		expect(offer.options.map(row => row.id)).toEqual(["court", "docks", NEW_MAP_CHOICE]);
 		expect(offer.options[0].hint).toBe("2 map(s)");
+	});
+
+	// Nothing is made for a collection any more, so one with no maps in it is ordinary, and it says so
+	// rather than claiming the map every collection used to arrive with.
+	it("counts a collection with no maps in it as having none", async () => {
+		world.maps = [court];
+		await chooseRelationshipMap();
+		expect(box.offered[0].options[0].hint).toBe("0 map(s)");
+	});
+
+	it("counts a version 1 board, which has no page behind it, as one map", async () => {
+		world.maps = [court];
+		world.legacy = { court: true };
+		await chooseRelationshipMap();
+		expect(box.offered[0].options[0].hint).toBe("1 map(s)");
 	});
 
 	it("leaves the make-a-map row off for somebody who may not make one", async () => {

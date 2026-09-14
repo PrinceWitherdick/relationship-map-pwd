@@ -15,10 +15,11 @@
 // no map, and the fallbacks take over), but "the map I had open" would then mean the last map opened
 // in ANY world in this browser, which is not what it says.
 //
-// THE FALLBACK, for a client that has not opened one yet: the first map, on its first page.
+// THE FALLBACK, for a client that has not opened one yet: the first collection with a map this reader
+// can look at, on its first map, and only failing that the first collection.
 
 import { getObjectSetting, setSettingQuietly, worldKey } from "../settings.js";
-import { getMapPage, listRelationshipMaps } from "./relmap-doc.js";
+import { getMapPage, listRelationshipMaps, resolveMapBoard } from "./relmap-doc.js";
 
 export const RELMAP_LAST_SETTING = "lastRelationshipBoard";
 
@@ -72,5 +73,9 @@ export function defaultBoard(maps = listRelationshipMaps()) {
 			return { entry, pageId };
 		}
 	}
-	return { entry: maps[0], pageId: null };
+	// ⚠ NOT SIMPLY THE FIRST. Collections sort by name and nothing is made for one any more, so the
+	// first of them can be one nobody has added a map to yet, or one whose every map the GM is still
+	// keeping back. A reader's first press landing there is an empty window while the table's maps
+	// sit one collection over.
+	return { entry: maps.find(entry => resolveMapBoard(entry).doc) ?? maps[0], pageId: null };
 }

@@ -6,6 +6,8 @@
 - The Party map is gone: no map seats the player characters by itself. Existing "The Party" maps stay as ordinary maps.
 - The last map in a collection can be deleted.
 - Clearer names in the window: a tab is a map, and the set of maps it belongs to is a collection ("Rename collection", "Delete collection", "Collections").
+- A collection with no maps you can see has nothing to draw on, and the Collections list counts its maps correctly. The Relationship Maps button opens a collection that has a map you can see, where there is one.
+- Adding, deleting and reordering maps follows who owns the collection, so a player can start a map in a collection whose other maps are hidden from them.
 
 ## 1.0.0
 

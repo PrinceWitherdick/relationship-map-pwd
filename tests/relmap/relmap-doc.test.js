@@ -12,7 +12,7 @@ import {
 	canHideMapPages, canSeeMapPage, createMapPage, createRelationshipMap, deleteMapPage,
 	ensureFirstMapPage, ensureRelationshipMapFolder, findRelationshipMapFolder, getMapPage,
 	getRelationshipMap, hasLegacyBoard, isMapPageHidden, listMapPages,
-	listRelationshipMaps, listVisibleMapPages, mapBoardDoc, mapPageName,
+	listRelationshipMaps, listVisibleMapPages, mapPageName, resolveMapBoard,
 	RELMAP_MAP_NAME_MAX, canDeleteRelationshipMap, deleteRelationshipMap, relationshipMapName,
 	renameRelationshipMap,
 	moveMapPage, planPageMove,
@@ -20,6 +20,9 @@ import {
 } from "../../module/relmap/relmap-doc.js";
 import { RELMAP_VERSION } from "../../module/relmap/relmap-store.js";
 import { createRelationshipMapEntrySheetClass } from "../../module/journal/RelationshipMapEntrySheet.js";
+
+/** The document a reader's board resolves to, which is all most of these ask `resolveMapBoard` for. */
+const boardDocOf = (entry, pageId = null) => resolveMapBoard(entry, pageId).doc;
 
 // Where a relationship map lives, and the two permission facts the whole feature is shaped around:
 // EDITING one needs only OWNER (so every player can), while CREATING one needs the journal-create
@@ -369,13 +372,13 @@ describe("the boards a map is made of", () => {
 describe("the document a board is read from and written to", () => {
 	it("is the page that was asked for", () => {
 		const map = mapWith("A map", [{ name: "Stillwater", id: "p1" }, { name: "Marshford", id: "p2" }]);
-		expect(mapBoardDoc(map, "p2").name).toBe("Marshford");
+		expect(boardDocOf(map, "p2").name).toBe("Marshford");
 	});
 
 	// Somebody at the far end of the table can rub out the board this reader is standing on.
 	it("falls through to the first board when that page has gone", () => {
 		const map = mapWith("A map", [{ name: "Stillwater", id: "p1" }, { name: "Marshford", id: "p2" }]);
-		expect(mapBoardDoc(map, "gone").name).toBe("Stillwater");
+		expect(boardDocOf(map, "gone").name).toBe("Stillwater");
 	});
 
 	// ⚠ THE WHOLE OF THE VERSION 1 STORY, from the window's point of view. A map written before
@@ -385,8 +388,24 @@ describe("the document a board is read from and written to", () => {
 		const legacy = entry("Old map", {
 			"relationship-map-pwd": { relationshipMap: { version: 1, nodes: { a: { x: 5, y: 5 } } } },
 		});
-		expect(mapBoardDoc(legacy, null)).toBe(legacy);
-		expect(Object.keys(readGraph(mapBoardDoc(legacy, null)).nodes)).toEqual(["a"]);
+		expect(boardDocOf(legacy, null)).toBe(legacy);
+		expect(Object.keys(readGraph(boardDocOf(legacy, null)).nodes)).toEqual(["a"]);
+		expect(resolveMapBoard(legacy).kind).toBe("legacy");
+	});
+
+	// ⚠ AND NOTHING AT ALL WHERE THERE IS NO BOARD. On a collection with no maps in it the entry's flag
+	// is only the mark, and resolved to it, every write in the window would land there: a nudge still
+	// waiting when the last map was rubbed out would reopen the collection as a version 1 map.
+	it("is nothing at all on a collection with no maps in it", () => {
+		const empty = mapWith("A collection", []);
+		expect(boardDocOf(empty, null)).toBeNull();
+		expect(resolveMapBoard(empty).kind).toBe("none");
+	});
+
+	it("is nothing at all for a reader whose every map is hidden", () => {
+		const map = mapWith("A collection", [{ id: "p1", name: "Stillwater", hidden: true }]);
+		expect(boardDocOf(map, "p1")).toBeNull();
+		expect(resolveMapBoard(map, "p1").kind).toBe("unshared");
 	});
 });
 
@@ -681,7 +700,7 @@ describe("adding a board to a map that has never had one", () => {
 		expect(Object.keys(readGraph(first).nodes)).toEqual(["a"]);
 		expect(Object.keys(readGraph(made).nodes)).toEqual([]);
 		// And the board the window would open on is the one with everybody on it.
-		expect(mapBoardDoc(map, null).name).toBe("The people of Stillwater");
+		expect(boardDocOf(map, null).name).toBe("The people of Stillwater");
 	});
 });
 
@@ -751,10 +770,10 @@ describe("hiding a board from the players", () => {
 			{ id: "p2", name: "Marshford", hidden: true },
 		]);
 		expect(getMapPage(map, "p2")).toBeNull();
-		expect(mapBoardDoc(map, "p2").id).toBe("p1");
+		expect(boardDocOf(map, "p2").id).toBe("p1");
 		asGM();
 		expect(getMapPage(map, "p2").name).toBe("Marshford");
-		expect(mapBoardDoc(map, "p2").id).toBe("p2");
+		expect(boardDocOf(map, "p2").id).toBe("p2");
 	});
 
 	// A GM tests as OWNER over everything in the world, so the eye cannot ask the permission

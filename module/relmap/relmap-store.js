@@ -30,8 +30,8 @@ import { normalizeHex } from "./relmap-ink.js";
  * THIS MODULE STARTS AT 2, because the board was first built inside a game system and moved onto
  * pages there. The graph did not change shape in that move, only which document it hangs off, so a
  * graph found on an entry is still read through `normalizeGraph` and moved onto a page the first time
- * somebody who may edit the map opens it (relmap-doc.js). That is also what rescues a map whose
- * pages were all deleted by some route other than this window.
+ * somebody who may edit the map opens it (relmap-doc.js). An entry carrying only this number and no
+ * pages is not that: it is a collection nobody has added a map to, and it is left empty.
  */
 export const RELMAP_VERSION = 2;
 
