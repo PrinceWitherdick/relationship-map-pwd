@@ -41,10 +41,8 @@ import { localize } from "../utils/i18n.js";
 import { deletionEntry } from "../utils/foundry-compat.js";
 import { moveWithin, insertionIndexIn } from "../utils/list-reorder.js";
 import {
-	RELMAP_FLAG, RELMAP_VERSION, addNodesPatch, emptyGraph, normalizeGraph,
-	relmapFlagPath, relmapPath,
+	RELMAP_FLAG, RELMAP_VERSION, emptyGraph, normalizeGraph, relmapPath,
 } from "./relmap-store.js";
-import { RELMAP_PARTY_FLAG, RELMAP_PARTY_MARK, partyBoardPlan } from "./relmap-party.js";
 
 /** The folder every map is filed under, in a colour of its own so it is easy to find. */
 export const RELMAP_FOLDER_NAME = "Relationship Maps";
@@ -140,14 +138,17 @@ export function canEditRelationshipMap(doc) {
 }
 
 /**
- * Make a new map, owned by everybody, with its first page already on it.
+ * Make a new collection, owned by everybody, with no maps in it.
  *
- * ONE create call carrying all five things: the mark that makes it a map, its first board, the
- * ownership that lets the table edit it, the sheet class that makes a link to it open the board,
- * and the folder. Written together because a map that arrives without any one of them is subtly
- * broken in a way nobody notices until a player tries to move a portrait — and a map that arrives
- * with no page at all is a board the FIRST person to open it has to conjure, which for a plain
- * player watching a GM's screen share is a window that sits blank until somebody else clicks.
+ * ONE create call carrying all four things: the mark that makes it a collection, the ownership that
+ * lets the table edit it, the sheet class that makes a link to it open the window, and the folder.
+ * Written together because a collection that arrives without any one of them is subtly broken in a
+ * way nobody notices until a player tries to move a portrait.
+ *
+ * ⚠ AND NO PAGE. A collection used to arrive with an empty board named after itself, and then grew
+ * "The Party" in front of it on the first open: two tabs nobody had asked for, one of them empty.
+ * Every map in a collection is now one somebody added, and the window says so while there are none.
+ * `hasLegacyBoard` is how a collection with no maps in it is told from a version 1 map.
  */
 export async function createRelationshipMap(name) {
 	if (!canCreateRelationshipMap()) return null;
@@ -157,7 +158,6 @@ export async function createRelationshipMap(name) {
 		name: title,
 		folder: folder?.id ?? null,
 		ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER },
-		pages: [mapPageData(title, emptyGraph(), 0)],
 		flags: {
 			core: { sheetClass: RELMAP_SHEET_CLASS },
 			// The MARK, not a graph: on the entry this flag says only "this is a map". See
@@ -338,8 +338,7 @@ export function canSeeMapPage(page, user = undefined) {
  * whole feature. Everything a reader SEES goes through this one; everything the document layer
  * REASONS about goes through the raw one. `ensureFirstMapPage` asking this would find no pages on a
  * map whose every board is hidden, helpfully make a fresh one, and sweep the entry's flags on the
- * way past; `deleteMapPage`'s "never the last one" rail asking this would let the last board on a
- * map be rubbed out because the reader happened to see only one of four.
+ * way past.
  */
 export function listVisibleMapPages(entry) {
 	return listMapPages(entry).filter(page => canSeeMapPage(page));
@@ -401,6 +400,19 @@ export function mapBoardDoc(entry, pageId = null) {
 	// pages twice over each time.
 	const pages = listVisibleMapPages(entry);
 	return pages.find(page => page.id === pageId) ?? pages[0] ?? entry;
+}
+
+/**
+ * Does this map still carry its board ON THE ENTRY, from before boards were pages?
+ *
+ * The one way to tell a version 1 map, whose whole board is the entry's own flag and is perfectly
+ * readable and editable, from a collection that simply has no maps in it yet. Both have no pages, and
+ * both leave `mapBoardDoc` resolving to the entry; only the first has anything there to draw on or to
+ * carry onto a page (`ensureFirstMapPage`). A collection made since is marked `{ version }` alone.
+ */
+export function hasLegacyBoard(entry) {
+	const flag = entry?.getFlag?.(MODULE_ID, RELMAP_FLAG);
+	return !!flag && typeof flag === "object" && (flag.nodes != null || flag.edges != null);
 }
 
 /** A page's name, made safe to store: trimmed, shortened, and never blank — core's `name` field
@@ -484,6 +496,9 @@ export async function ensureFirstMapPage(entry) {
 	const already = listMapPages(entry);
 	if (already.length) return already[0];
 	if (!canEditRelationshipMap(entry)) return null;
+	// A COLLECTION WITH NO MAPS IN IT IS LEFT THAT WAY. Only a version 1 map has a board to carry onto
+	// a page; a collection nobody has added a map to yet gets none made for it on open.
+	if (!hasLegacyBoard(entry)) return null;
 
 	const carried = normalizeGraph(entry.getFlag?.(MODULE_ID, RELMAP_FLAG));
 	// ⚠ SHOWN, AND THE ONLY BOARD IN THE SYSTEM THAT IS MADE THAT WAY. Every new board starts hidden
@@ -550,15 +565,14 @@ export async function renameMapPage(page, name) {
 /**
  * Rub out one board, and everything on it.
  *
- * ⚠ NEVER THE LAST ONE. A map with no pages is a map whose next opener silently converts it from
- * its own long-dead entry graph — which is empty — so deleting the last page reads as "the map
- * emptied itself". The caller confirms with the reader; this is the rail underneath that, because
- * the confirm dialog is UI and this is the rule.
+ * THE LAST ONE TOO. A collection with no maps in it is an ordinary state now, and nothing refills one
+ * on the next open (`ensureFirstMapPage` only carries a version 1 board), so rubbing out the last map
+ * leaves a collection that says it is empty. The caller confirms with the reader; this is the
+ * ownership rail underneath that, because the confirm dialog is UI and this is the rule.
  */
 export async function deleteMapPage(page) {
 	const entry = page?.parent ?? null;
 	if (!entry || !canEditRelationshipMap(entry)) return false;
-	if (listMapPages(entry).length <= 1) return false;
 	await entry.deleteEmbeddedDocuments?.("JournalEntryPage", [page.id]);
 	return true;
 }
@@ -670,149 +684,4 @@ export async function applyPatch(doc, patch) {
 	if (!doc || !patch || !Object.keys(patch).length) return false;
 	await doc.update(patch);
 	return true;
-}
-
-
-/**
- * EVERY BOARD THIS MODULE SEATS FOR ITSELF, by the page flag that marks one: role -> flag.
- *
- * ONE LIST, so `mapBoardRole` below answers "which kind of board is this?" for every kind there is,
- * and a second board that seats itself is a row here and nothing else.
- */
-const RELMAP_SELF_SEATING = Object.freeze({
-	party: RELMAP_PARTY_FLAG,
-});
-
-/**
- * WHICH KIND OF BOARD one page is: "party", or "" for a map's own board.
- *
- * ⚠ ASKED OF THE PAGE, which is both truer and very much cheaper than looking the board up on the
- * entry: asking `getPartyPage(entry)?.id === page.id` walks, filters and re-sorts the whole strip on
- * every render and every repaint, and a repaint arrives whenever anybody at the table nudges a
- * portrait.
- *
- * Never of its NAME, for the reason `getPartyPage` gives: a board is renameable like any other, and
- * a table that calls it "Us" must not thereby lose its tools.
- */
-export function mapBoardRole(page) {
-	return Object.entries(RELMAP_SELF_SEATING)
-		.find(([, flag]) => page?.getFlag?.(MODULE_ID, flag))?.[0] ?? "";
-}
-
-
-// ── The party's own board ───────────────────────────────────────────────────────────────────────
-
-/** This map's party board, or null. Found by the flag and never by the name, because the page is
- * renameable like any other and a table that calls it "Us" must not get a second one. */
-export function getPartyPage(entry) {
-	return listMapPages(entry).find(page => page.getFlag?.(MODULE_ID, RELMAP_PARTY_FLAG)) ?? null;
-}
-
-/** Has this map ever been given a party board? Read off the ENTRY, so the answer survives the page
- * being deleted -- which is what makes deleting it stick. */
-export function hadPartyPage(entry) {
-	return !!entry?.getFlag?.(MODULE_ID, RELMAP_FLAG)?.[RELMAP_PARTY_MARK];
-}
-
-/**
- * Give this map its party board, or bring the one it has up to date.
- *
- * WHAT IT IS FOR: nobody should have to put the party on the map by hand. The board makes itself the
- * first time the map is opened after there IS a party, seats every player character on a ring, and
- * seats anybody who joins the party later in whatever space is left. It draws no lines: what the
- * player characters are to each other is the table's to say.
- *
- * ⚠ IT ONLY EVER ADDS, and never on a board that has been deleted. A page that came back on the
- * next open is a page nobody can be rid of; a page that re-seated itself would throw away the
- * arrangement the table built, which is the only reason it is a page rather than a computed view.
- *
- * ⚠ AND IT REMEMBERS WHO IT HAS SEATED, so taking somebody off sticks. Who counts as a player
- * character is a guess in a module that knows nothing about the system (utils/party.js), and a guess
- * that includes a player's familiar must cost one removal, once, rather than the familiar climbing
- * back onto the board every time the map is opened. See relmap/relmap-party.js.
- *
- * RUN ON OPEN, gated on OWNER like every other write here. It writes nothing at all when there is
- * nothing new, which is nearly every open.
- *
- * THE FIRST PAGE FIRST, for the reason `createMapPage` gives: a map carrying its board on the ENTRY
- * would otherwise resolve `mapBoardDoc` to the new page and look as though it had been swept clean.
- *
- * @param {JournalEntry} entry
- * @param {Array<{id, uuid, name, img}>} pcs  the party, from the caller's own reader.
- * @returns {Promise<{page, addedPeople}|null>}  null when nobody was SEATED, which includes the pass
- *          that only writes the ledger down: that pass does write, but it has nothing to say.
- */
-export async function syncPartyPage(entry, pcs = []) {
-	if (!entry || !canEditRelationshipMap(entry)) return null;
-	const party = (pcs ?? []).filter(pc => pc?.uuid);
-	const page = getPartyPage(entry);
-
-	// Nobody to put on it. A world with no player characters yet gets no empty tab; it gets one the
-	// first time somebody opens the map after there IS a party.
-	if (!page && (!party.length || hadPartyPage(entry))) return null;
-	if (!page) return createPartyPage(entry, party);
-
-	const seated = partySeated(page);
-	const plan = partyBoardPlan(readGraph(page), party, { seated });
-	// Nothing new to seat AND nothing new to remember. The second half earns its keep when somebody
-	// has dragged a player character on by hand: nobody is added, and what has to be written down is
-	// that they are accounted for.
-	if (!plan.addedPeople && plan.seated.length === seated.length) return null;
-
-	// ONE WRITE for the whole thing, as leaf paths so it merges with somebody else's concurrent drag
-	// rather than replacing the `nodes` object out from under it. The ledger rides in the same write,
-	// so a board cannot end up holding people it has no record of handing over.
-	await applyPatch(page, {
-		[relmapFlagPath(RELMAP_PARTY_FLAG, "seated")]: plan.seated,
-		...addNodesPatch(plan.nodes),
-	});
-	if (!plan.addedPeople) return null;
-	return { page, addedPeople: plan.addedPeople };
-}
-
-/** Who this party board has been handed before. Absent, or half-written, reads as nobody. */
-function partySeated(page) {
-	const seated = page?.getFlag?.(MODULE_ID, RELMAP_PARTY_FLAG)?.seated;
-	return Array.isArray(seated) ? seated : [];
-}
-
-/**
- * Where the party board sits on the strip when it is made: FIRST, in front of every other board.
- *
- * WHY THE FRONT. Every other board is somewhere the table went: a household, a court, who owes whom.
- * This one is who the table IS, and a map opens on its first tab, so it is the tab the eye starts
- * from rather than the one on the end of a strip that scrolls. A table that drags it somewhere else
- * keeps it there: nothing moves it back.
- *
- * A whole step in FRONT of the first board rather than a fixed number, so the gap between it and
- * what follows is the same gap every other pair of boards has.
- */
-function partySort(pages) {
-	const first = pages[0];
-	return first ? (Number(first.sort) || 0) - PAGE_SORT_STEP : 0;
-}
-
-/**
- * The party board, made and seated in one go, and marked on the entry so it is never made twice.
- *
- * THE MARK IS WRITTEN AFTER THE PAGE EXISTS, the same order `ensureFirstMapPage` keeps: a mark written
- * first, followed by a create that failed, is a map that believes it has a party board and will
- * never make one.
- */
-async function createPartyPage(entry, party) {
-	await ensureFirstMapPage(entry);
-	const plan = partyBoardPlan(emptyGraph(), party, { seated: [] });
-	const made = await entry.createEmbeddedDocuments?.("JournalEntryPage", [
-		mapPageData(
-			localize("RELMAP.pages.party"),
-			{ ...emptyGraph(), nodes: plan.nodes },
-			partySort(listMapPages(entry)),
-			// WHICH board this is, and who it has seated, written in the same create as the board.
-			{ [RELMAP_PARTY_FLAG]: { seated: plan.seated } },
-		),
-	]);
-	const page = made?.[0] ?? null;
-	if (!page) return null;
-	await entry.update({ [relmapPath(RELMAP_PARTY_MARK)]: true });
-	return { page, addedPeople: plan.addedPeople };
 }

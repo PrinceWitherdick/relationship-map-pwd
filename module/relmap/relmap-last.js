@@ -15,13 +15,10 @@
 // no map, and the fallbacks take over), but "the map I had open" would then mean the last map opened
 // in ANY world in this browser, which is not what it says.
 //
-// THE TWO FALLBACKS, for a client that has not opened one yet:
-//  • The party's own board, wherever it is (relmap/relmap-party.js). On a young world it is the one
-//    with anybody on it.
-//  • Failing that, the first map, on its first page.
+// THE FALLBACK, for a client that has not opened one yet: the first map, on its first page.
 
 import { getObjectSetting, setSettingQuietly, worldKey } from "../settings.js";
-import { canSeeMapPage, getMapPage, getPartyPage, listRelationshipMaps } from "./relmap-doc.js";
+import { getMapPage, listRelationshipMaps } from "./relmap-doc.js";
 
 export const RELMAP_LAST_SETTING = "lastRelationshipBoard";
 
@@ -74,14 +71,6 @@ export function defaultBoard(maps = listRelationshipMaps()) {
 			const pageId = last.pageId && getMapPage(entry, last.pageId) ? last.pageId : null;
 			return { entry, pageId };
 		}
-	}
-	for (const entry of maps) {
-		const party = getPartyPage(entry);
-		// ⚠ THE MAP IS STILL THE ANSWER, AND ONLY THE BOARD IS DROPPED, when the party's board is one
-		// the GM has not shown this reader. Skipping the whole map would send a player off to a
-		// different one over a board they were never being taken to; `pageId: null` lands them on the
-		// first board of this map they can see.
-		if (party) return { entry, pageId: canSeeMapPage(party) ? party.id : null };
 	}
 	return { entry: maps[0], pageId: null };
 }

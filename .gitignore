@@ -6,3 +6,6 @@ node_modules/
 *.bak
 *.orig
 *.rej
+
+# The Foundry package page's description, pasted into the package admin by hand.
+docs/foundry-package-description.html

@@ -56,7 +56,7 @@ vi.mock("../../module/dialogs/content-picker.js", () => ({
 
 const { RelationshipMapWindow, openRelationshipMap } =
 	await import("../../module/dialogs/RelationshipMapWindow.js");
-const { listVisibleMapPages, mapBoardRole, readGraph } = await import("../../module/relmap/relmap-doc.js");
+const { listVisibleMapPages, readGraph } = await import("../../module/relmap/relmap-doc.js");
 const { forgetAllHistory } = await import("../../module/relmap/relmap-history.js");
 const { dropNodePatch, edgePatch } = await import("../../module/relmap/relmap-store.js");
 const { RELMAP_SEAT_MIN } = await import("../../module/relmap/relmap-store.js");
@@ -1349,67 +1349,6 @@ describe("who may change a map", () => {
 	});
 });
 
-// ── Which board is the party's ──────────────────────────────────────────────────────────────
-//
-// The board called "The Party" seats the party by itself when the primary GM opens the map. There is
-// no button asking for the seating pass out loud: somebody missing from the board is dragged on or
-// added by hand.
-describe("the party board's role", () => {
-
-	/** A window on a map whose party board is `PARTY_PAGE`, standing on the page given. */
-	const on = (pageId, { isOwner = true, primary = true } = {}) => {
-		const made = windowFor(TWO_PEOPLE, { isOwner });
-		const pages = [
-			{ id: "board1", name: "The Court", flags: {} },
-			{ id: "party1", name: "The Party", flags: { "relationship-map-pwd": { relationshipPartyBoard: true } } },
-		];
-		for (const page of pages) {
-			page.getFlag = (scope, key) => page.flags[scope]?.[key] ?? null;
-			page.sort = 0;
-		}
-		// `listMapPages` keeps only pages carrying a graph, so both need one.
-		for (const page of pages) {
-			page.flags["relationship-map-pwd"] = { ...page.flags["relationship-map-pwd"], relationshipMap: { nodes: {}, edges: {} } };
-		}
-		made.entry.pages = { contents: pages };
-		made.app._pageId = pageId;
-		globalThis.game.users = primary
-			? { activeGM: { id: "u1" } }
-			: { activeGM: { id: "somebody-else" } };
-		return made;
-	};
-
-	// ⚠ ASKED OF THE PAGE AND NEVER OF ITS NAME. The board is renameable like any other, and a table
-	// that calls it "Us" must not lose the tools that belong to it.
-	it("knows the party board even after it has been renamed", () => {
-		const { app, entry } = on("party1");
-		entry.pages.contents[1].name = "Us";
-		expect(mapBoardRole(app.mapPage)).toBe("party");
-	});
-
-	it("is not the board the reader is on when they are on another one", () => {
-		expect(mapBoardRole(on("board1").app.mapPage)).toBe("");
-	});
-
-	// ⚠ THE SEATING PASS IS THE PRIMARY GM'S ALONE, now that nothing else can ask for it. It runs
-	// unasked on every client that may edit and mints fresh ids, so two people opening the map in
-	// the same minute would each write the same missing line under a different id.
-	it("does not seat the party on a client that is not the primary GM", async () => {
-		const { app } = on("party1", { primary: false });
-		expect(await app._syncPartyPage()).toBe(null);
-	});
-
-	// The button that used to sit on the bar is gone, so the action it answered to is gone with it:
-	// a stray press does nothing rather than reaching the seating pass from a client that must not
-	// run it.
-	it("has no refresh action left on the tool bar", async () => {
-		const { app } = on("party1");
-		app._syncPartyPage = vi.fn();
-		await app._onToolClick({ currentTarget: { dataset: { relmapAction: "refreshparty" } } });
-		expect(app._syncPartyPage).not.toHaveBeenCalled();
-	});
-});
-
 describe("opening a map", () => {
 	// AppV1 resolves an Application's element by its id, so two windows sharing one id both resolve
 	// to the FIRST one's frame: the second paints into the first's window and the first's handlers
@@ -2627,15 +2566,13 @@ describe("the pages of one map", () => {
 		expect(view.attrs["aria-labelledby"]).toBe("relmap-map1-page-p2");
 	});
 
-	// ⚠ ALWAYS RENDERED AND HIDDEN, never behind a condition: whether the last board may be rubbed
-	// out changes whenever anybody at the table adds or removes one, and `_paintPages` can only
-	// write onto markup a repaint left standing.
-	it("offers the delete only while there is more than one board", () => {
+	// ⚠ ALWAYS RENDERED AND HIDDEN, never behind a condition: whether there is a board to rub out
+	// changes whenever anybody at the table adds or removes one, and `_paintPages` can only write onto
+	// markup a repaint left standing. The last board may go too: a collection with no maps in it is an
+	// ordinary state, and nothing refills it.
+	it("offers the delete whenever there is a board, the last one included", () => {
 		const entry = pagedEntry([{ id: "p1", name: "Stillwater" }]);
 		const { app, dropTool } = windowFor(null, { entry, pageId: "p1" });
-		app._paintPages();
-		expect(dropTool.hidden).toBe(true);
-		entry.pages.contents.push(pageFor("Marshford", EMPTY_BOARD, { id: "p2", sort: 1, parent: entry }));
 		app._paintPages();
 		expect(dropTool.hidden).toBe(false);
 	});
@@ -3592,6 +3529,47 @@ describe("hiding a board from the players", () => {
 		const { app } = windowFor();
 		expect(app.noBoardForMe).toBe(false);
 		expect(app.canEdit).toBe(true);
+	});
+
+	// A COLLECTION WITH NO MAPS IN IT AT ALL is the third empty, and the only one whose way out is the
+	// plus rather than "Add someone": there is no board to put anybody on.
+	it("gives a collection with no maps in it nothing to draw on, and the plus to start one", () => {
+		const { app } = windowFor(null, { entry: pagedEntry([]) });
+		expect(app.noMapsYet).toBe(true);
+		expect(app.noBoardForMe).toBe(false);
+		expect(app.canEdit).toBe(false);
+		expect(app.canAddMap).toBe(true);
+		const said = app._chrome(app._plan());
+		expect(said.empty).toBe(true);
+		expect(said.emptyLead).toBe("RELMAP.pages.noneLead");
+		expect(said.emptyHint).toBe("RELMAP.pages.noneHint");
+		expect(said.emptyAction).toMatchObject({ action: "pagenew" });
+	});
+
+	// A tab named after the collection would read as a map somebody made. That one tab is a version 1
+	// map's alone, where the board really is on the entry.
+	it("draws no tab at all for a collection with no maps in it", () => {
+		const { app } = windowFor(null, { entry: pagedEntry([]) });
+		expect(String(app._pageTabs())).not.toContain("data-relmap-page");
+	});
+
+	it("offers a reader who may not edit that collection no way to add a map", () => {
+		const { app } = windowFor(null, { entry: pagedEntry([], { isOwner: false }) });
+		expect(app.canAddMap).toBe(false);
+		const said = app._chrome(app._plan());
+		expect(said.emptyHint).toBe("RELMAP.pages.noneHintReadonly");
+		expect(said.emptyAction).toBeNull();
+	});
+
+	// The plus is gated on the collection there, and every tool that writes to a board still is not.
+	it("lets the plus through on a collection with no maps in it, and nothing that needs a board", async () => {
+		const { app } = windowFor(null, { entry: pagedEntry([]) });
+		app._addPage = vi.fn();
+		app._addPerson = vi.fn();
+		await app._onToolClick({ currentTarget: { dataset: { relmapAction: "pagenew" } } });
+		await app._onToolClick({ currentTarget: { dataset: { relmapAction: "add" } } });
+		expect(app._addPage).toHaveBeenCalled();
+		expect(app._addPerson).not.toHaveBeenCalled();
 	});
 
 	// THE GLYPH IS THE STATE AND THE HINT IS THE OUTCOME, which is the only pairing that reads

@@ -7,7 +7,7 @@
     "add": "Add someone",
     "addHint": "Put people on the map.",
     "addTitle": "Who goes on the map?",
-    "addPickHint": "Tick everyone who should go on this board. They are all seated in one go.",
+    "addPickHint": "Tick everyone who should go on this map. They are all seated in one go.",
     "addNamed": "Add {name}",
     "addNamedCount": "Add {count} people",
     "choose": "Add",
@@ -15,8 +15,8 @@
     "emptyLead": "Nobody is on this map yet.",
     "emptyHint": "Drag an actor in from the sidebar, or use Add someone.",
     "emptyHintReadonly": "Whoever keeps this map has not put anyone on it yet.",
-    "unsharedLead": "There is nothing on this map for you to see yet.",
-    "unsharedHint": "Every page of a relationship map starts out the GM's own. When they show you one, it appears here.",
+    "unsharedLead": "There is nothing in this collection for you to see yet.",
+    "unsharedHint": "Every map in a collection starts out the GM's own. When they show you one, it appears here.",
     "openSheet": "{name}. Double-click to open their sheet, drag to move them.",
     "noSheet": "{name} has no actor in this world.",
     "gone": "That person's actor is no longer in this world.",
@@ -24,7 +24,7 @@
     "added": "{name} has been added to the map.",
     "addedCount": "{count} people have been added to the map.",
     "alreadyHere": "{name} is already on this map.",
-    "everyoneAdded": "Every actor in this world is already on this board.",
+    "everyoneAdded": "Every actor in this world is already on this map.",
     "linkHint": "Drag to another person to draw a line, or click to choose one.",
     "linkFrom": "Draw a line from {name}",
     "linkFromTitle": "Draw a line from {name} to whom?",
@@ -69,10 +69,10 @@
     "removeLabel": "Take {name} off this map",
     "removeGesture": "Right-click to see the delete button.",
     "inkNamed": "Colour: {name}",
-    "inkCustomHeading": "Already on this board",
-    "inkCustomNamed": "The colour {name}, already on this board",
+    "inkCustomHeading": "Already on this map",
+    "inkCustomNamed": "The colour {name}, already on this map",
     "inkCustomField": "A colour of your own",
-    "inkDeepened": "{chose} was too pale to follow on this board, so this line is drawn in {used}.",
+    "inkDeepened": "{chose} was too pale to follow on this map, so this line is drawn in {used}.",
     "inks": {
       "rose": "Rose",
       "green": "Green",
@@ -132,64 +132,65 @@
       "both": "Both ways, marked at each end"
     },
     "maps": {
-      "newTitle": "What is this map called?",
-      "newGo": "Make the map",
-      "namePlaceholder": "The party, the court, who owes whom",
-      "cannotCreate": "Ask your GM to make a relationship map. Making one needs the Trusted Player role; once it exists, you can draw on it.",
-      "rename": "Rename map",
-      "renameHint": "Rename this whole map. Its boards, the people on them and every line drawn keep exactly as they are.",
+      "newTitle": "What is this collection called?",
+      "newGo": "Make the collection",
+      "namePlaceholder": "The campaign, the city, the court",
+      "cannotCreate": "Ask your GM to make a collection of relationship maps. Making one needs the Trusted Player role; once it exists, you can draw on its maps.",
+      "rename": "Rename collection",
+      "renameHint": "Rename this whole collection. Its maps, the people on them and every line drawn keep exactly as they are.",
+      "renameTitle": "Rename this collection",
+      "renameGo": "Rename it",
+      "renamed": "This collection is now called {name}.",
+      "delete": "Delete collection",
+      "deleteHint": "Delete this whole collection, every map in it and every line drawn. Nobody's actor is touched.",
+      "deleteTitle": "Delete this collection?",
+      "deleteBody": "{name} will be deleted, along with all {boards} of its map(s) and the {people} person(s) standing on them. Nobody's actor is touched, and this cannot be undone.",
+      "deleteConfirm": "Delete the collection",
+      "deleteCancel": "Keep this collection",
+      "deleted": "The collection {name} has been deleted.",
+      "switch": "Collections",
+      "chooseTitle": "Collections",
+      "chooseGo": "Open",
+      "new": "Make a new collection",
+      "newHint": "Start another collection, with a map of its own.",
+      "boardCount": "{count} map(s)"
+    },
+    "pages": {
+      "label": "Maps in this collection",
+      "untitled": "New map",
+      "placeholder": "The court, the docks, who owes whom",
+      "new": "New map",
+      "newHint": "Start another map in this collection, with nobody on it yet. Each map has its own people, its own lines and its own layout, and starts out hidden from the players until the GM shows it.",
+      "newTitle": "Name the new map",
+      "added": "{name} has been added, and is the map you are on.",
+      "hideHint": "Hide this map from your players. Nothing on it is lost or changed: the people, the lines and the layout stay exactly as they are, and only you can see them until you show the map again.",
+      "showHint": "Show this map to your players. They will be able to see it, and to move people and draw lines on it, as they can on every map you have shown them.",
+      "hidden": "{name} is hidden from your players.",
+      "shown": "{name} is now shown to your players.",
+      "renameHint": "Rename the map you are on.",
       "renameTitle": "Rename this map",
       "renameGo": "Rename it",
       "renamed": "This map is now called {name}.",
-      "delete": "Delete map",
-      "deleteHint": "Delete this whole map, every board on it and every line drawn. Nobody's actor is touched.",
+      "deleteHint": "Delete the map you are on, and everyone on it. The other maps in this collection are untouched.",
       "deleteTitle": "Delete this map?",
-      "deleteBody": "{name} will be deleted, along with all {boards} of its board(s) and the {people} person(s) standing on them. Nobody's actor is touched, and this cannot be undone.",
-      "deleteConfirm": "Delete the map",
-      "deleteCancel": "Keep this map",
-      "deleted": "The relationship map {name} has been deleted.",
-      "switch": "Maps",
-      "chooseTitle": "Relationship maps",
-      "chooseGo": "Open",
-      "new": "Make a new map",
-      "newHint": "Start another map, with a board of its own.",
-      "boardCount": "{count} board(s)"
-    },
-    "pages": {
-      "label": "Pages of this map",
-      "untitled": "New page",
-      "placeholder": "The court, the docks, who owes whom",
-      "new": "New page",
-      "newHint": "Start another board on this map, with nobody on it yet. Each page has its own people, its own lines and its own layout, and starts out hidden from the players until the GM shows it.",
-      "newTitle": "Name the new page",
-      "added": "{name} has been added, and is the page you are on.",
-      "hideHint": "Hide this page from your players. Nothing on it is lost or changed: the people, the lines and the layout stay exactly as they are, and only you can see them until you show the page again.",
-      "showHint": "Show this page to your players. They will be able to see it, and to move people and draw lines on it, as they can on every page you have shown them.",
-      "hidden": "{name} is hidden from your players.",
-      "shown": "{name} is now shown to your players.",
-      "renameHint": "Rename the page you are on.",
-      "renameTitle": "Rename this page",
-      "renameGo": "Rename it",
-      "renamed": "This page is now called {name}.",
-      "deleteHint": "Delete the page you are on, and everyone on it. The other pages of this map are untouched.",
-      "deleteTitle": "Delete this page?",
-      "deleteBody": "{name} will be deleted. Nobody is on it, and the other pages of this map are untouched.",
-      "deleteBodyPeople": "{name} will be deleted, along with the {count} person(s) on it and every line drawn between them. Their actors are not touched, and neither are the other pages of this map.",
+      "deleteBody": "{name} will be deleted. Nobody is on it, and the other maps in this collection are untouched.",
+      "deleteBodyPeople": "{name} will be deleted, along with the {count} person(s) on it and every line drawn between them. Their actors are not touched, and neither are the other maps in this collection.",
       "deleteConfirm": "Delete",
-      "deleteCancel": "Keep this page",
+      "deleteCancel": "Keep this map",
       "deleted": "{name} has been deleted.",
       "now": "Showing {name}.",
-      "moved": "{name} is now page {index} of {count}.",
-      "orderHint": "Drag a page along the strip to put it in a different order, or hold Ctrl and press the left or right arrow key. The order is the whole table's: everyone sees these pages in the order you leave them in.",
-      "failed": "That page could not be made. You may no longer have permission to change this map.",
-      "moveFailed": "That page could not be moved. You may no longer have permission to change this map.",
-      "party": "The Party",
-      "partySeeded": "{name}: {people} player character(s) seated."
+      "moved": "{name} is now map {index} of {count}.",
+      "orderHint": "Drag a map along the strip to put it in a different order, or hold Ctrl and press the left or right arrow key. The order is the whole table's: everyone sees these maps in the order you leave them in.",
+      "failed": "That map could not be made. You may no longer have permission to change this collection.",
+      "moveFailed": "That map could not be moved. You may no longer have permission to change this collection.",
+      "noneLead": "This collection has no maps yet.",
+      "noneHint": "Add the first one with New map, or with the + beside the tabs.",
+      "noneHintReadonly": "Whoever keeps this collection has not added a map to it yet."
     },
     "hideLabels": "Hide labels",
-    "hideLabelsHint": "Take the writing off every line on this board, leaving the faces and the lines between them. On a crowded board the words are what makes it hard to read. Nothing is deleted or changed, nobody else's window is touched, and unticking this brings every word straight back. Click a line and its own words come back while you have it, so you can still read and write on one.",
+    "hideLabelsHint": "Take the writing off every line on this map, leaving the faces and the lines between them. On a crowded map the words are what makes it hard to read. Nothing is deleted or changed, nobody else's window is touched, and unticking this brings every word straight back. Click a line and its own words come back while you have it, so you can still read and write on one.",
     "labelsNow": {
-      "on": "The words along the lines are hidden. The lines and everybody on the board are still there.",
+      "on": "The words along the lines are hidden. The lines and everybody on the map are still there.",
       "off": "The words along the lines are showing again."
     },
     "history": {
@@ -202,15 +203,15 @@
       "unlinked": "deleting a line",
       "editedLink": "changing a line",
       "movedCaption": "moving what a line says",
-      "backHint": "Take back {what}. Yours alone: it takes back what you did on this board, and never what anyone else at the table did. Ctrl+Z.",
+      "backHint": "Take back {what}. Yours alone: it takes back what you did on this map, and never what anyone else at the table did. Ctrl+Z.",
       "forwardHint": "Do {what} again. Ctrl+Shift+Z.",
-      "backNothing": "There is nothing of yours on this board to take back.",
+      "backNothing": "There is nothing of yours on this map to take back.",
       "forwardNothing": "There is nothing to do again.",
       "backDone": "Taken back: {what}.",
       "forwardDone": "Done again: {what}.",
-      "gone": "That cannot be taken back any more: everyone it was about has since been taken off this board."
+      "gone": "That cannot be taken back any more: everyone it was about has since been taken off this map."
     },
-    "weightGroup": "How heavily this board is drawn, for you",
+    "weightGroup": "How heavily this map is drawn, for you",
     "weightUp": "{name}, heavier",
     "weightDown": "{name}, lighter",
     "weightReset": "Put {name} back to {pct}%",
@@ -218,15 +219,15 @@
     "weights": {
       "head": {
         "name": "Arrowheads",
-        "hint": "How big the arrowheads on the lines are drawn, as a percentage. Only lines that say which way they are read carry one, and on a board with a lot of people on it they are small. This is yours alone: it changes every board you open and nobody else's window, and nothing on the map itself is altered."
+        "hint": "How big the arrowheads on the lines are drawn, as a percentage. Only lines that say which way they are read carry one, and on a map with a lot of people on it they are small. This is yours alone: it changes every map you open and nobody else's window, and nothing on the map itself is altered."
       },
       "line": {
         "name": "Lines",
-        "hint": "How thick the lines between people are drawn, as a percentage. Broken and dotted lines open up to match, so a dotted line still reads as dotted at any weight. This is yours alone: it changes every board you open and nobody else's window, and nothing on the map itself is altered."
+        "hint": "How thick the lines between people are drawn, as a percentage. Broken and dotted lines open up to match, so a dotted line still reads as dotted at any weight. This is yours alone: it changes every map you open and nobody else's window, and nothing on the map itself is altered."
       },
       "word": {
         "name": "Words",
-        "hint": "How big the writing along the lines is set, as a percentage. Any line you have given a size of its own grows by the same share, so the loud ones stay louder than the quiet ones. This is yours alone: it changes every board you open and nobody else's window, and nothing on the map itself is altered."
+        "hint": "How big the writing along the lines is set, as a percentage. Any line you have given a size of its own grows by the same share, so the loud ones stay louder than the quiet ones. This is yours alone: it changes every map you open and nobody else's window, and nothing on the map itself is altered."
       }
     },
     "people": {
@@ -252,19 +253,19 @@
       },
       "playedBy": "Played by {names}"
     },
-    "inkLightened": "{chose} was too dark to follow on this board, so this line is drawn in {used}.",
+    "inkLightened": "{chose} was too dark to follow on this map, so this line is drawn in {used}.",
     "sheetLabel": "Relationship Map",
     "directory": {
       "open": "Relationship Maps"
     },
     "settings": {
       "highContrast": {
-        "name": "High-contrast relationship boards",
-        "hint": "Draws every relationship board for a reader who cannot rely on colour: the eight line colours are darkened (or lightened, on the dark theme) to 4.5:1, each is drawn with its own dash pattern, and every face gets a heavier rim. Only on your screen."
+        "name": "High-contrast relationship maps",
+        "hint": "Draws every relationship map for a reader who cannot rely on colour: the eight line colours are darkened (or lightened, on the dark theme) to 4.5:1, each is drawn with its own dash pattern, and every face gets a heavier rim. Only on your screen."
       },
       "restoreWindows": {
         "name": "Reopen relationship maps after a reload",
-        "hint": "When you reload, any relationship map you had open comes back where you left it, on the board you were looking at. Only on your screen."
+        "hint": "When you reload, any relationship map you had open comes back where you left it, on the map you were looking at. Only on your screen."
       }
     }
   }

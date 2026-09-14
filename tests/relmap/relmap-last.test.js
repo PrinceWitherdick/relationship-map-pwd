@@ -3,7 +3,7 @@ import {
 	RELMAP_LAST_SETTING, defaultBoard, getLastBoard, rememberBoard,
 } from "../../module/relmap/relmap-last.js";
 import { RELMAP_FLAG } from "../../module/relmap/relmap-store.js";
-import { RELMAP_PARTY_FLAG } from "../../module/relmap/relmap-party.js";
+
 import { MODULE_ID } from "../../module/module-id.js";
 
 // Where the hotbar macro lands when nobody said which map.
@@ -16,9 +16,8 @@ let stored;     // setting key -> value, standing in for this browser's localSto
 let journals;   // the world's JournalEntry list
 let sets;       // every game.settings.set call, to catch a write per repaint
 
-/** One board of a map. `party` marks it as the self-seating party board, by the flag the real
- * thing goes by (the page is renameable, so the name proves nothing). */
-function page(id, name, { party = false, sort = 0 } = {}) {
+/** One board of a map. */
+function page(id, name, { sort = 0 } = {}) {
 	return {
 		id,
 		name,
@@ -26,7 +25,6 @@ function page(id, name, { party = false, sort = 0 } = {}) {
 		getFlag(ns, key) {
 			if (ns !== MODULE_ID) return undefined;
 			if (key === RELMAP_FLAG) return { v: 2 };
-			if (key === RELMAP_PARTY_FLAG) return party || undefined;
 			return undefined;
 		},
 	};
@@ -120,23 +118,17 @@ describe("which board an unasked open lands on", () => {
 		expect(defaultBoard()).toEqual({ entry: masons, pageId: null });
 	});
 
-	it("falls through to the party board when the map it remembers is gone", () => {
+	it("falls through to the first map when the map it remembers is gone", () => {
 		const marshford = map("m2", "Marshford", [page("p3", "The docks")]);
-		const stillwater = map("m3", "Stillwater", [page("p4", "The wharf"), page("p5", "The Party", { party: true, sort: 1 })]);
+		const stillwater = map("m3", "Stillwater", [page("p4", "The wharf")]);
 		journals = [marshford, stillwater];
 		rememberBoard("m1", "p2");
-		expect(defaultBoard()).toEqual({ entry: stillwater, pageId: "p5" });
-	});
-
-	it("opens the party board on a client that has never opened one", () => {
-		const stillwater = map("m3", "Stillwater", [page("p4", "The wharf"), page("p5", "The Party", { party: true, sort: 1 })]);
-		journals = [stillwater];
-		expect(defaultBoard()).toEqual({ entry: stillwater, pageId: "p5" });
+		expect(defaultBoard()).toEqual({ entry: marshford, pageId: null });
 	});
 
 	// Alphabetical, because that is the order `listRelationshipMaps` hands them over in and the
 	// order the sidebar shows.
-	it("opens the first map, on its first page, when no map has a party board", () => {
+	it("opens the first map, on its first page, on a client that has never opened one", () => {
 		const marshford = map("m2", "Marshford", [page("p3", "The docks")]);
 		const stillwater = map("m3", "Stillwater", [page("p4", "The wharf")]);
 		journals = [stillwater, marshford];

@@ -10,7 +10,7 @@ import { MODULE_ID } from "./module/module-id.js";
 import { registerSettings } from "./module/settings.js";
 import { createRelationshipMapEntrySheetClass } from "./module/journal/RelationshipMapEntrySheet.js";
 import { RELMAP_SHEET_CLASS, canCreateRelationshipMap, getRelationshipMap } from "./module/relmap/relmap-doc.js";
-import { chooseRelationshipMap, makeFirstRelationshipMap, mapToOpen } from "./module/relmap/relmap-make.js";
+import { chooseRelationshipMap, mapToOpen, promptForNewRelationshipMap } from "./module/relmap/relmap-make.js";
 import { openRelationshipMap } from "./module/dialogs/RelationshipMapWindow.js";
 import { addOpenMapsButton, hideRelationshipMapRows } from "./module/hooks/journal-directory-maps.js";
 import { installThemeFollower, refreshOpenWindows } from "./module/utils/window-theme.js";
@@ -26,7 +26,7 @@ const TEMPLATES = [
 
 /**
  * Open the maps: a named map where one is asked for, otherwise the board this reader was last on, and
- * in a world with no maps yet, a first map made there and then (relmap/relmap-make.js).
+ * in a world with no maps yet, the question of what the first one is called.
  *
  * @param {string|null} [which]  a map's id or name.
  * @returns {Promise<Application|null>}
@@ -40,7 +40,7 @@ async function openMaps(which = null) {
 		ui.notifications?.info?.(localize("RELMAP.maps.cannotCreate"));
 		return null;
 	}
-	const made = await makeFirstRelationshipMap();
+	const made = await promptForNewRelationshipMap();
 	return made ? openRelationshipMap(made) : null;
 }
 

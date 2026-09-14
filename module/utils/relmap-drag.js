@@ -435,7 +435,7 @@ export function wireRelmapDrag(root, {
 		// would otherwise pick that person up by their own name for the tie between them.
 		//
 		// A SLIDE IS NOT A PORTRAIT DRAG, so it answers to `canEdit` and not to `canMove`: a board
-		// whose seats are drawn for it (the party) is still a board whose captions the
+		// whose portraits may not be moved is still a board whose captions the
 		// table writes and arranges. `canEdit` was asked at the top of this handler.
 		//
 		// AND A PRESS THAT NEVER TRAVELS IS STILL A CLICK. Nothing is consumed here, so the caption

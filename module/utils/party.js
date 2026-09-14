@@ -12,9 +12,8 @@
 //     nobody has an assigned character, a type called `character` is taken as that kind if the
 //     system has one, and failing that every player-owned actor counts.
 //
-// The Party board SEATS whoever this returns and remembers everyone it has seated, so taking
-// somebody off that board sticks (relmap/relmap-party.js). A guess that includes one actor too many
-// therefore costs one removal, once.
+// The person chooser lists whoever this returns under "Player characters" (utils/people-groups.js).
+// A guess that includes one actor too many costs nothing more than a name in the wrong list.
 
 /**
  * @returns {Array<Actor>} the party, by name, ties broken by id so every client agrees on the order.

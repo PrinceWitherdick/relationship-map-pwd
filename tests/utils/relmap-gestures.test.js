@@ -1117,8 +1117,8 @@ describe("a caption dragged along its own line", () => {
 		teardown();
 	});
 
-	// ⚠ AND IT ANSWERS TO `canEdit` RATHER THAN TO `canMove`. A board that seats its own portraits
-	// — the party — is still a board whose lines the table writes and arranges, so
+	// ⚠ AND IT ANSWERS TO `canEdit` RATHER THAN TO `canMove`. A board whose portraits may not be
+	// moved is still a board whose lines the table writes and arranges, so
 	// refusing the portrait drag must not refuse this one.
 	it("still slides on a board whose portraits place themselves", () => {
 		const { handlers, teardown } = wire(board, { canMove: () => false });

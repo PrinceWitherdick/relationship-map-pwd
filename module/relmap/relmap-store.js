@@ -383,10 +383,10 @@ export function normalizeGraph(raw) {
 /**
  * The flag path to one part of ANY of this system's map flags. The ONE place these are built.
  *
- * Not only the graph's: a board that seats itself keeps its own ledger under its own flag, and that
- * path was being spelled out by hand at the one call site that needed it. A flag path assembled in
- * two places is how one of them ends up wrong -- and the wrong one writes somewhere nothing reads,
- * silently, which is the hardest way to find out.
+ * Not only the graph's: any flag this module keeps under its own scope is reached through here, so
+ * no call site spells a path out by hand. A flag path assembled in two places is how one of them ends
+ * up wrong -- and the wrong one writes somewhere nothing reads, silently, which is the hardest way to
+ * find out.
  */
 export function relmapFlagPath(flag, ...parts) {
 	return [`flags.${MODULE_ID}.${flag}`, ...parts].join(".");
@@ -534,7 +534,7 @@ export function dropEdgePatch(id) {
 /**
  * Where the portraits already sit, in the shape `freeSpot` and `ringsLayout` want.
  *
- * ONE spelling, shared by the window and the Party board: a seat that reads the occupied list
+ * ONE spelling, for everywhere people are seated: a seat that reads the occupied list
  * differently from the one that fills it is how a newcomer lands on top of somebody.
  */
 export function takenSpots(graph) {
@@ -554,8 +554,8 @@ export function nodeIdentity(person) {
 /**
  * Seat arriving people on a board, and hand back the nodes that would put them there.
  *
- * ONE spelling of the seating rule, shared by the window and the board that seeds itself
- * (relmap-party.js). This is the FILLING half of the pair `takenSpots` above is the reading half
+ * ONE spelling of the seating rule, for everywhere people are seated on a board. This is the
+ * FILLING half of the pair `takenSpots` above is the reading half
  * of, and that function's warning applies twice over here: a seeder that sized the sheet
  * differently, or laid a ring where the other reached for `freeSpot`, is how a newcomer lands on
  * top of somebody on one board and not on the other.

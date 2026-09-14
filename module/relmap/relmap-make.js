@@ -1,12 +1,8 @@
 // HOW A RELATIONSHIP MAP COMES INTO EXISTENCE, and which one "open the maps" lands on.
 //
-// THE FIRST MAP IS MADE WITHOUT A QUESTION. Pressing "Relationship Maps" in a world that has none IS
-// the asking: the map arrives under the plain name "Relationship Map", the party seats itself on a
-// board of its own as the window opens, and the map can be renamed from that window. A name box in
-// front of it only stood between the table and the board they were about to start on.
-//
-// EVERY MAP AFTER THE FIRST IS STILL ASKED FOR BY NAME, from the chooser, because by then the name is
-// what tells one map from another.
+// NOTHING IS MADE FOR A WORLD UNASKED. The first time somebody opens the maps in a world that has
+// none, they are asked what the first collection is called, and so is every collection after it. A
+// collection arrives with no maps in it at all: every map in it is one somebody added with the "+".
 
 import { format, localize } from "../utils/i18n.js";
 import { pickContentOption, promptForText } from "../dialogs/content-picker.js";
@@ -17,25 +13,6 @@ import { defaultBoard } from "./relmap-last.js";
 
 /** The chooser's row for making a new map. Not an id any document can have. */
 export const NEW_MAP_CHOICE = "__new__";
-
-/** The first map's create while it is in flight, so a second press joins it instead of making another. */
-let makingFirst = null;
-
-/**
- * Make a world's first map, under the plain name, without asking anything.
- *
- * ⚠ ONE CREATE PER PRESS, HOWEVER MANY PRESSES. The name box used to stand in front of this and
- * swallow a double-click; without it, two clicks on the sidebar button inside one round trip would
- * both find no map and make two. So a press made while the create is still out gets the same promise.
- *
- * @returns {Promise<JournalEntry|null>}  the new map, or null when this reader may not make one.
- */
-export function makeFirstRelationshipMap() {
-	if (!canCreateRelationshipMap()) return Promise.resolve(null);
-	makingFirst ??= createRelationshipMap(localize("RELMAP.untitled"))
-		.finally(() => { makingFirst = null; });
-	return makingFirst;
-}
 
 /**
  * Ask what the new map is called, and make it.

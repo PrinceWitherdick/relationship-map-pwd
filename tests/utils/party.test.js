@@ -78,7 +78,7 @@ describe("partyCharacters", () => {
 		expect(ids(partyCharacters())).toEqual(["pim"]);
 	});
 
-	// Every client has to agree on the order, because the Party board seats people in it.
+	// Every client has to agree on the order, because the person chooser lists people in it.
 	it("sorts by name, and breaks a tie by id", () => {
 		const second = actor("b2", "Sam", "character", { owned: true });
 		const first = actor("a1", "Sam", "character", { owned: true });

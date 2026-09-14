@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- Nothing is made for you any more. In a world with no collection yet, the Relationship Maps button asks what the first one is called, and a new collection starts with no maps in it. Add a map with New map or the + beside the map tabs.
+- The Party map is gone: no map seats the player characters by itself. Existing "The Party" maps stay as ordinary maps.
+- The last map in a collection can be deleted.
+- Clearer names in the window: a tab is a map, and the set of maps it belongs to is a collection ("Rename collection", "Delete collection", "Collections").
+
 ## 1.0.0
 
 First release as a module of its own. The relationship map was first built for the Stonetop system for Foundry VTT and has been rebuilt here to work with any game system.

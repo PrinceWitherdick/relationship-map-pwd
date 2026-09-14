@@ -58,16 +58,14 @@ import {
 	describeWrite, forgetHistory, historyFor, stepPatch,
 } from "../relmap/relmap-history.js";
 import { RelmapTieBar, TIE_DIR_ICONS } from "../utils/relmap-tie-bar.js";
-import { partyCharacters } from "../utils/party.js";
 import {
 	applyPatch, canDeleteRelationshipMap, canEditRelationshipMap, canHideMapPages, createMapPage,
 	deleteMapPage, deleteRelationshipMap,
 	ensureFirstMapPage, getMapPage, isMapPageHidden, listMapPages, listVisibleMapPages, mapBoardDoc,
 	mapPageName, moveMapPage, readGraph, relationshipMapName, renameMapPage, renameRelationshipMap,
-	setMapPageHidden, syncPartyPage,
+	hasLegacyBoard, setMapPageHidden,
 } from "../relmap/relmap-doc.js";
 import { chooseRelationshipMap } from "../relmap/relmap-make.js";
-import { isPrimaryGM } from "../utils/primary-gm.js";
 import { pickPersonToAdd, pickPersonToLink } from "./RelationshipLinkDialog.js";
 import { promptForText } from "./content-picker.js";
 
@@ -226,7 +224,9 @@ const TOOLS = Object.freeze({
 	// They are in this table rather than beside the strip's own click handler for the reason the table
 	// exists at all: a tool gated by where it happens to be written is a tool nobody can tell was gated
 	// on purpose. Switching between pages is NOT here, because it is not a tool and not an edit.
-	pagenew: { needsEdit: true, run: app => app._addPage() },
+	// ⚠ THE PLUS IS GATED ON THE COLLECTION AND NOT ON THE BOARD. A collection with no maps in it has
+	// no board to edit, and the plus is the one way into it. See `canAddMap`.
+	pagenew: { needsEdit: false, needsAddMap: true, run: app => app._addPage() },
 	// ⚠ `needsEdit` IS NOT THE GATE THAT MATTERS HERE, and it is written all the same. Who may hide a
 	// board is a narrower question than who may edit one (only a GM, because core's own sanitizer
 	// refuses an ownership change from anybody else) and `_hidePage` asks it.
@@ -469,7 +469,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * still the GM's own owns the entry, and `boardDoc` for them falls back to that entry: they
 	 * would have every tool enabled over a flag that is drawn nowhere. The fallthrough is told from
 	 * the other document that reaches it -- a map still on version 1, whose board really is on the
-	 * entry and really is editable -- by whether the map has any pages at all.
+	 * entry and really is editable -- by whether the map has no pages and still carries its board on
+	 * the entry (`hasLegacyBoard`). A collection with no maps in it yet has neither, and nothing to edit.
 	 *
 	 * ONE WALK OF THE STRIP in the ordinary case, which matters: this is asked several times per
 	 * render, again on every repaint, and again on every gesture. The second walk is only paid by a
@@ -478,7 +479,28 @@ export class RelationshipMapWindow extends RelmapDialog {
 	get canEdit() {
 		const page = this.mapPage;
 		if (page) return canEditRelationshipMap(page);
-		return !listMapPages(this.entry).length && canEditRelationshipMap(this.entry);
+		return !listMapPages(this.entry).length && hasLegacyBoard(this.entry)
+			&& canEditRelationshipMap(this.entry);
+	}
+
+	/**
+	 * THIS COLLECTION HAS NO MAPS IN IT AT ALL, and no version 1 board to carry onto one.
+	 *
+	 * Nothing makes a map for a collection any more (relmap/relmap-doc.js `createRelationshipMap`), so
+	 * this is what a new collection opens as, and what rubbing out its last map leaves behind.
+	 * `boardDoc` still resolves to the entry, whose flag is only the mark, so `canEdit` is false here
+	 * and the board has nothing to write to; what is offered instead is the plus (`canAddMap`).
+	 */
+	get noMapsYet() {
+		return !listMapPages(this.entry).length && !hasLegacyBoard(this.entry);
+	}
+
+	/**
+	 * MAY THIS READER ADD A MAP HERE? Whoever may edit the board in front of them, and on a collection
+	 * with no maps in it at all, whoever may edit the collection: the plus is the only way in.
+	 */
+	get canAddMap() {
+		return this.canEdit || (this.noMapsYet && canEditRelationshipMap(this.entry));
 	}
 
 	/** May this reader hide a board from the players, and show it again? Only a GM, and asked afresh
@@ -529,13 +551,15 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// title bar was already saying an inch above it; the name the template still needs is
 			// the PAGE's, and that is written into the tab strip below.
 			canEdit: this.canEdit,
+			// THE PLUS, which on a collection with no maps in it is offered without the other tools.
+			canAddMap: this.canAddMap,
 			// WHICH BOARD OF THIS MAP IS UP, as a strip of named tabs under the bar.
 			//
 			// SHOWN TO A READER WHO MAY ONLY LOOK ONLY WHEN THERE IS SOMETHING TO CHOOSE BETWEEN. A
 			// single tab over a board, with no way to add a second, is a row of chrome that answers
 			// a question nobody asked; but the moment a map has two boards, knowing which one you
 			// are on is the most important thing on the window, whether or not you may write to it.
-			showPages: this.canEdit || pages.length > 1,
+			showPages: this.canAddMap || pages.length > 1,
 			// ⚠ DROPPED IN WHOLE, like the board and the person chooser, and NOT written out here
 			// as an `{{#each}}`. Pages are made, renamed and deleted under an open window, and the
 			// repaint that keeps up with that can only reach the DOM. One builder, two writers.
@@ -568,10 +592,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// separately would be two spellings of one question with the wrong one right until the
 			// next full render. See `_seenTool`.
 			...this._seenTool(page),
-			// ⚠ THE LAST BOARD MAY NOT BE RUBBED OUT, and the button is absent rather than disabled
-			// on a one-page map. A map with no pages is one whose next opener silently gives it a
-			// fresh empty board, so the delete would read as the map emptying itself.
-			canDropPage: this.canEdit && pages.length > 1,
+			// THE LAST BOARD MAY BE RUBBED OUT TOO: a collection with no maps in it is an ordinary
+			// state, and nothing refills it on the next open.
+			canDropPage: this.canEdit && pages.length > 0,
 			board: await this._renderBoard(plan),
 			addLabel: localize("RELMAP.add"),
 			addHint: localize("RELMAP.addHint"),
@@ -1370,7 +1393,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 				const board = this.mapPage;
 				const moved = (board?.id ?? null) !== this._pageId;
 				const strip = !!this._root?.querySelector(".relmap-pages-strip");
-				if (this.rendered && (moved || strip !== (this.canEdit || pages.length > 1))) {
+				if (this.rendered && (moved || strip !== (this.canAddMap || pages.length > 1))) {
 					// Only where the board actually changed, and for the reason the delete path
 					// drops it: the id names a board that is no longer theirs, and left standing it
 					// would pin them to nothing. A strip appearing over the SAME board is not a
@@ -1408,6 +1431,13 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// CLOSED window as well as a mid-render one, and a `render()` from here would reopen a
 			// board the reader had shut a moment before somebody else touched the map.
 			if (!this.rendered) return;
+			// ⚠ THE FIRST MAP IN A COLLECTION THAT HAD NONE is a different window rather than a new tab:
+			// the strip's tools, the footer and the board all hang off `canEdit`, which was false with
+			// nothing to edit, and a repaint can only rewrite markup a render already put there.
+			if (!gone && !this._pageId && !hasLegacyBoard(this.entry)) {
+				this.render();
+				return;
+			}
 			// The `|| !this._pageId` is a rail rather than an ordinary case: every render pins
 			// `_pageId` to a concrete page, so an unpinned window is one that has not rendered yet,
 			// and "whichever board comes first" is a board ANY deletion may have changed.
@@ -1801,26 +1831,34 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// theirs to fill in. It is also the state in which the window has nothing to write to (see
 		// `noBoardForMe`), which is why `canEdit` is already false here and the button already gone.
 		const unshared = this.noBoardForMe;
+		// AND A COLLECTION WITH NO MAPS IN IT AT ALL, which is a third empty: not "nobody on this map"
+		// and not "nothing shown to you", but "there is no map here yet". What it offers is the way to
+		// make one, to whoever may.
+		const none = this.noMapsYet;
+		const addMap = none && this.canAddMap;
 		return {
-			empty: nobody || unshared,
+			empty: nobody || unshared || none,
 			// ⚠ THE HEADLINE IS DERIVED HERE TOO, though it never changes, because `_paintChrome`
 			// WRITES every part of the panel it repaints. Left in `getData` alone, as it was, this
 			// came back `undefined` on every repaint and the writer blanked the sentence outright:
 			// the empty board would appear carrying only its hint and its button until the next full
 			// render. Nothing in a panel may be settled in one of the two writers only.
 			emptyLead: localize(
-				unshared ? "RELMAP.unsharedLead" : "RELMAP.emptyLead",
+				none ? "RELMAP.pages.noneLead" : unshared ? "RELMAP.unsharedLead" : "RELMAP.emptyLead",
 			),
 			// ⚠ AND SO IS WHAT IT OFFERS, for the same reason and one step further on: whether the
 			// reader may add anybody is an ownership question, and ownership changes under an open
 			// window.
 			emptyHint: localize(
-				unshared ? "RELMAP.unsharedHint"
-					: this.canEdit ? "RELMAP.emptyHint" : "RELMAP.emptyHintReadonly",
+				none ? (addMap ? "RELMAP.pages.noneHint" : "RELMAP.pages.noneHintReadonly")
+					: unshared ? "RELMAP.unsharedHint"
+						: this.canEdit ? "RELMAP.emptyHint" : "RELMAP.emptyHintReadonly",
 			),
-			emptyAction: this.canEdit
-				? { action: "add", label: localize("RELMAP.add"), icon: "fa-user-plus" }
-				: null,
+			emptyAction: addMap
+				? { action: "pagenew", label: localize("RELMAP.pages.new"), icon: "fa-plus" }
+				: this.canEdit
+					? { action: "add", label: localize("RELMAP.add"), icon: "fa-user-plus" }
+					: null,
 			// ⚠ IN THE CHROME AND NOT ONLY IN `getData`, for the reason everything else here is: a
 			// repaint that rebuilt the box from a render's context would tick it back on, or off,
 			// under a reader who had just set it the other way. See `_chrome`.
@@ -1901,44 +1939,6 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._pagesReady = true;
 		try { await ensureFirstMapPage(this.entry); }
 		catch (err) { console.warn("Relationship Map | relationship map could not be given its first page", err); }
-		// AND THEN THE PARTY'S OWN BOARD, in the same guarded once-per-window pass and after the
-		// first page for the reason `createMapPage` gives. Its own try/catch, so a map that cannot
-		// be given a party board still opens with everything else it has.
-		try { await this._syncPartyPage(); }
-		catch (err) { console.warn("Relationship Map | relationship map could not update the party board", err); }
-	}
-
-	/**
-	 * Make or top up the board called "The Party".
-	 *
-	 * ⚠ THE ONE PLACE THIS WINDOW READS ANYTHING BUT THE MAP. Nobody should have to put the party on a
-	 * map by hand, so the party seat themselves on a board of their own. Who the party ARE comes from
-	 * `partyCharacters()` (utils/party.js), and nothing here forms a second opinion about it.
-	 *
-	 * ⚠ THE PRIMARY GM AND NOBODY ELSE, which is a RACE guard and the one thing here that is not
-	 * obvious. This runs unasked, on open, on every client that may edit, and it mints a fresh id per
-	 * person. Two people opening the map in the same minute after somebody joined the party would each
-	 * seat them under a different id, and the board would hold them twice with no way to tell which to
-	 * take off. A player opening the map sees whatever the GM's client has already put there.
-	 */
-	async _syncPartyPage() {
-		if (!isPrimaryGM()) return null;
-		const said = await syncPartyPage(this.entry, this._partyReaders());
-		if (!said) return null;
-		// SAID OUT LOUD, even though nobody asked: a tab appearing by itself, or faces arriving on a
-		// board somebody is not looking at, is a change to a shared document nobody pressed a button for.
-		ui.notifications?.info?.(format("RELMAP.pages.partySeeded", {
-			name: said.page?.name ?? localize("RELMAP.pages.party"),
-			people: said.addedPeople,
-		}));
-		return said;
-	}
-
-	/** The party, in the shape the seating pass wants them in. */
-	_partyReaders() {
-		return (partyCharacters() ?? []).map(actor => ({
-			id: actor.id, uuid: actor.uuid, name: actor.name, img: actor.img ?? "",
-		}));
 	}
 
 	/**
@@ -2014,9 +2014,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// The system's one audited escaper (utils/strings.js), not foundry.utils.escapeHTML: same
 		// five-character map, and Foundry-free, which is what lets the tests exercise this method.
 		const esc = escHtml;
+		// ⚠ THE ONE TAB WITH NO BOARD BEHIND IT IS A VERSION 1 MAP'S ALONE, whose board really is on
+		// the entry. A collection with no maps in it gets no tab at all: a tab named after the
+		// collection would read as a map somebody made, which is exactly what nobody did.
 		const rows = pages.length
 			? pages.map(page => ({ id: page.id, name: page.name }))
-			: [{ id: "", name: this.entry?.name ?? localize("RELMAP.untitled") }];
+			: hasLegacyBoard(this.entry)
+				? [{ id: "", name: this.entry?.name ?? localize("RELMAP.untitled") }]
+				: [];
 		// It takes two boards to have an order, and the one tab a version 1 map gets is not a board
 		// at all -- it names the map, carries no id, and there is nowhere to put it.
 		const drag = canOrder && pages.length > 1 ? " draggable=\"true\"" : "";
@@ -2094,10 +2099,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// changed without a render: somebody else deleting the page this reader was on moves them.
 		const view = this._root?.querySelector(".relmap-view");
 		if (view) view.setAttribute("aria-labelledby", this._pageTabId(page?.id ?? ""));
-		// Whether the last board can be rubbed out depends on how many there are, which is exactly
+		// Whether there is a board to rub out at all depends on how many there are, which is exactly
 		// what has just changed.
 		const drop = this._root?.querySelector("[data-relmap-action=\"pagedelete\"]");
-		if (drop) drop.hidden = !(mine && pages.length > 1);
+		if (drop) drop.hidden = !(mine && pages.length > 0);
 	}
 
 	/**
@@ -2509,7 +2514,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * Delete the whole map, after asking.
 	 *
 	 * ASKED WITH BOTH COUNTS IN IT, for the reason the board's own delete carries one: this is the
-	 * largest thing anybody can destroy from this window, and "Delete this map?" over a year of a
+	 * largest thing anybody can destroy from this window, and "Delete this collection?" over a year of a
 	 * table's work understates it by every board and every face on them. The button that commits it
 	 * wears the system's destructive skin, like the board's.
 	 *
@@ -2599,7 +2604,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 */
 	async _removePage() {
 		const page = this.mapPage;
-		if (!page || this.mapPages.length <= 1) return;
+		if (!page) return;
 		const people = Object.keys(readGraph(page).nodes).length;
 		// RED: it is one of the two controls here that destroy work nobody can get back, and the
 		// footer's other button is a plain "keep". The skin comes from `_confirm`'s `danger`, not a
@@ -3561,7 +3566,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 
 	async _onToolClick(ev) {
 		const tool = TOOLS[ev.currentTarget.dataset.relmapAction];
-		if (!tool || (tool.needsEdit && !this.canEdit)) return;
+		if (!tool || (tool.needsEdit && !this.canEdit) || (tool.needsAddMap && !this.canAddMap)) return;
 		return tool.run(this, ev.currentTarget);
 	}
 
@@ -3604,8 +3609,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * worked out against a board that has not been written yet, so the second arrival lands on the
 	 * first: `freeSpot` reads the graph, and the graph does not know about anybody still in flight.
 	 *
-	 * `seatArrivals` is the same seater the party board fills itself with, which is
-	 * what keeps a newcomer off somebody's lap here too: it sizes the portraits for the board these
+	 * `seatArrivals` is the one seater there is (relmap/relmap-store.js), and it is
+	 * what keeps a newcomer off somebody's lap: it sizes the portraits for the board these
 	 * people are about to MAKE (the sheet grows with its cast), keeps its own list of what is taken
 	 * as it goes, and lays a whole ring out where the board it is filling is empty.
 	 */

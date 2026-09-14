@@ -4,8 +4,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 //
 // The rules asserted here are about restraint, and each fails silently in the wrong direction:
 //
-//  • a world's first map is made without a question, and only once however many times it is asked for;
-//  • every map after it is named in a box that opens EMPTY;
+//  • nothing is made for a world unasked, and the box a new collection is named in opens EMPTY;
 //  • a reader who may not make a map is never asked to name one;
 //  • a map asked for by name or id wins, and anything else goes where this reader was last.
 //
@@ -48,7 +47,7 @@ import { canCreateRelationshipMap, createRelationshipMap } from "../../module/re
 import { pickContentOption, promptForText } from "../../module/dialogs/content-picker.js";
 import { defaultBoard } from "../../module/relmap/relmap-last.js";
 import {
-	NEW_MAP_CHOICE, chooseRelationshipMap, makeFirstRelationshipMap, mapToOpen, promptForNewRelationshipMap,
+	NEW_MAP_CHOICE, chooseRelationshipMap, mapToOpen, promptForNewRelationshipMap,
 } from "../../module/relmap/relmap-make.js";
 
 const court = { id: "court", name: "The Court" };
@@ -67,37 +66,6 @@ beforeEach(() => {
 	last.landing = null;
 });
 
-describe("a world's first map", () => {
-	// Pressing the sidebar button in a world with no maps is the asking. The party seats itself on its
-	// own board as the window opens, so a name box in front of the first map only delayed the board.
-	it("is made under the plain name without asking anything", async () => {
-		const made = await makeFirstRelationshipMap();
-		expect(promptForText).not.toHaveBeenCalled();
-		expect(createRelationshipMap).toHaveBeenCalledWith("Relationship Map");
-		expect(made).toBe(world.made);
-	});
-
-	it("is not made by somebody who may not make a map", async () => {
-		world.canCreate = false;
-		expect(await makeFirstRelationshipMap()).toBeNull();
-		expect(createRelationshipMap).not.toHaveBeenCalled();
-	});
-
-	// The name box used to swallow a double-click. Without it, two presses inside one round trip would
-	// both find no map, and the world would start with two.
-	it("is made once when the button is pressed twice before the first create comes back", async () => {
-		const [first, second] = await Promise.all([makeFirstRelationshipMap(), makeFirstRelationshipMap()]);
-		expect(createRelationshipMap).toHaveBeenCalledTimes(1);
-		expect(second).toBe(first);
-	});
-
-	it("can be made again once the first create has come back", async () => {
-		await makeFirstRelationshipMap();
-		await makeFirstRelationshipMap();
-		expect(createRelationshipMap).toHaveBeenCalledTimes(2);
-	});
-});
-
 describe("the map somebody asks for", () => {
 	it("makes it under the name that was typed", async () => {
 		const made = await promptForNewRelationshipMap();
@@ -111,9 +79,9 @@ describe("the map somebody asks for", () => {
 		expect(promptForText).toHaveBeenCalledTimes(1);
 		const asked = box.asked[0];
 		expect(asked.value ?? "").toBe("");
-		expect(asked.placeholder).toBe("The party, the court, who owes whom");
-		expect(asked.title).toBe("What is this map called?");
-		expect(asked.buttonLabel).toBe("Make the map");
+		expect(asked.placeholder).toBe("The campaign, the city, the court");
+		expect(asked.title).toBe("What is this collection called?");
+		expect(asked.buttonLabel).toBe("Make the collection");
 	});
 
 	// Taken rather than refused, exactly as an empty board name is: the map can be renamed from its own
@@ -173,7 +141,7 @@ describe("choosing a map", () => {
 		const offer = box.offered[0];
 		expect(offer.selected).toBe("court");
 		expect(offer.options.map(row => row.id)).toEqual(["court", "docks", NEW_MAP_CHOICE]);
-		expect(offer.options[0].hint).toBe("2 board(s)");
+		expect(offer.options[0].hint).toBe("2 map(s)");
 	});
 
 	it("leaves the make-a-map row off for somebody who may not make one", async () => {

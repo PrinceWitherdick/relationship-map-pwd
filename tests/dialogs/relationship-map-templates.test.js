@@ -879,6 +879,7 @@ describe("the page strip", () => {
 		hideLabels: false,
 		// The strip's own context.
 		showPages: true,
+		canAddMap: true,
 		pageTabs: '<button data-relmap-page="p1" class="relmap-page is-current">Stillwater</button>',
 		pagePanelId: "relmap-map1-page-p1",
 		pagesLabel: "Pages of this map",
@@ -922,7 +923,7 @@ describe("the page strip", () => {
 	// All four make, show, rename or destroy a document, so the whole group is behind the gate. The
 	// strip itself is not: a reader who may only look still gets to look at every board.
 	it("offers no page tools at all to a reader who may only look", () => {
-		const html = render(context({ canEdit: false }));
+		const html = render(context({ canEdit: false, canAddMap: false }));
 		expect(html).toContain("relmap-pages-strip");
 		expect(html).not.toContain('data-relmap-action="pagenew"');
 		expect(html).not.toContain('data-relmap-action="pagedelete"');
@@ -933,6 +934,15 @@ describe("the page strip", () => {
 		const html = render(context());
 		for (const action of ["pagenew", "pagehide", "pagerename", "pagedelete"]) {
 			expect(html).toContain(`data-relmap-action="${action}"`);
+		}
+	});
+
+	// A collection with no maps in it has no board to edit, and the plus is the only way in.
+	it("offers the plus alone on a collection with no maps in it", () => {
+		const html = render(context({ canEdit: false, canAddMap: true, pageTabs: "" }));
+		expect(html).toContain('data-relmap-action="pagenew"');
+		for (const action of ["pagehide", "pagerename", "pagedelete"]) {
+			expect(html).not.toContain(`data-relmap-action="${action}"`);
 		}
 	});
 

@@ -11,14 +11,14 @@ import {
 	RELMAP_FOLDER_NAME, RELMAP_PAGE_NAME_MAX, RELMAP_SHEET_CLASS, canCreateRelationshipMap,
 	canHideMapPages, canSeeMapPage, createMapPage, createRelationshipMap, deleteMapPage,
 	ensureFirstMapPage, ensureRelationshipMapFolder, findRelationshipMapFolder, getMapPage,
-	getRelationshipMap, getPartyPage, hadPartyPage, isMapPageHidden, listMapPages,
+	getRelationshipMap, hasLegacyBoard, isMapPageHidden, listMapPages,
 	listRelationshipMaps, listVisibleMapPages, mapBoardDoc, mapPageName,
 	RELMAP_MAP_NAME_MAX, canDeleteRelationshipMap, deleteRelationshipMap, relationshipMapName,
 	renameRelationshipMap,
 	moveMapPage, planPageMove,
-	readGraph, renameMapPage, setMapPageHidden, syncPartyPage,
+	readGraph, renameMapPage, setMapPageHidden,
 } from "../../module/relmap/relmap-doc.js";
-import { RELMAP_VERSION, addNodePatch, dropNodePatch } from "../../module/relmap/relmap-store.js";
+import { RELMAP_VERSION } from "../../module/relmap/relmap-store.js";
 import { createRelationshipMapEntrySheetClass } from "../../module/journal/RelationshipMapEntrySheet.js";
 
 // Where a relationship map lives, and the two permission facts the whole feature is shaped around:
@@ -125,9 +125,8 @@ const entry = (name, flags = {}, extra = {}) => {
 			return Promise.resolve(doc);
 		},
 		createEmbeddedDocuments(type, rows) {
-			// ⚠ THE WHOLE FLAG OBJECT, not just the graph. The party board is told apart from every
-			// other page by a SECOND flag beside it, and a fake that dropped it would certify a
-			// lookup that can never find anything.
+			// ⚠ THE WHOLE FLAG OBJECT, not just the graph. A page can carry a second flag beside its
+			// graph, and a fake that dropped it would certify a lookup that can never find anything.
 			const made = rows.map(row => pageDoc(row.name, row.flags?.["relationship-map-pwd"]?.relationshipMap ?? null,
 				{
 					sort: row.sort, parent: doc, flags: row.flags ?? null,
@@ -292,16 +291,22 @@ describe("making a new map", () => {
 		expect(created[0].flags["relationship-map-pwd"].relationshipMap).toBeTruthy();
 	});
 
-	// A map that arrives with no board at all is a window that sits blank until the first person
-	// who may edit it clicks something — which for a player watching a GM's screen share is a
-	// feature that looks broken.
-	it("arrives with its first board already on it, named after the map", async () => {
+	// Every map in a collection is one somebody added. A collection used to arrive with an empty board
+	// named after itself, and then grow "The Party" in front of it: two tabs nobody had asked for.
+	it("arrives with no maps in it", async () => {
 		await createRelationshipMap("The people of Stillwater");
-		const [first] = created[0].pages;
-		expect(first.name).toBe("The people of Stillwater");
-		expect(first.sort).toBe(0);
-		expect(first.flags["relationship-map-pwd"].relationshipMap).toMatchObject({ nodes: {}, edges: {} });
+		expect(created[0].pages ?? []).toEqual([]);
 	});
+
+	// And that is how it is told from a version 1 map: its flag is the mark, with no board on it, so
+	// opening it carries nothing onto a page.
+	it("carries no board on the entry either, so opening it makes no map", async () => {
+		await createRelationshipMap("The people of Stillwater");
+		const made = entry("The people of Stillwater", created[0].flags);
+		expect(hasLegacyBoard(made)).toBe(false);
+		expect(await ensureFirstMapPage(made)).toBeNull();
+	});
+
 
 	it("files it in the folder", async () => {
 		await createRelationshipMap("Mine");
@@ -492,12 +497,11 @@ describe("adding, renaming and rubbing out a board", () => {
 		expect(listMapPages(map).map(p => p.name)).toEqual(["Stillwater"]);
 	});
 
-	// ⚠ NEVER THE LAST ONE. A map with no pages is one whose next opener silently converts it from
-	// its own long-dead entry graph, which is empty — so this would read as the map emptying itself.
-	it("refuses to rub out the last board", async () => {
+	// THE LAST ONE TOO. A collection with no maps in it is an ordinary state, and nothing refills it.
+	it("rubs out the last board too, leaving a collection with no maps in it", async () => {
 		const map = mapWith("A map", [{ name: "Stillwater", id: "p1" }]);
-		expect(await deleteMapPage(getMapPage(map, "p1"))).toBe(false);
-		expect(listMapPages(map)).toHaveLength(1);
+		expect(await deleteMapPage(getMapPage(map, "p1"))).toBe(true);
+		expect(listMapPages(map)).toEqual([]);
 	});
 
 	it("refuses to rub one out for a reader who may not edit the map", async () => {
@@ -512,8 +516,7 @@ describe("adding, renaming and rubbing out a board", () => {
 //
 // The order is the TABLE'S: it is written to the pages as core's own `sort`, so a tab dragged on
 // one client moves on every other. What is proved here is the arithmetic (one write for an ordinary
-// move, a renumber only when the gap has run out), the gate, and the mark that stops the party
-// board being lifted back over an order somebody has made by hand.
+// move, a renumber only when the gap has run out), and the gate.
 
 describe("putting the boards in an order", () => {
 	const NAMES = map => listMapPages(map).map(page => page.name);
@@ -682,176 +685,6 @@ describe("adding a board to a map that has never had one", () => {
 	});
 });
 
-// ── The party's own board ───────────────────────────────────────────────────────────────────────
-//
-// Nobody should have to put the party on a map by hand, so the board makes itself on open. Everything
-// below is about the ways that could go wrong: making it twice, making it again after somebody
-// deliberately deleted it, rearranging a board the table has arranged, and bringing back somebody the
-// table took off it.
-
-describe("the party board", () => {
-	const pc = (id, name) => ({ id, uuid: `Actor.${id}`, name, img: "" });
-	const PARTY = [pc("pim", "Pim"), pc("sela", "Sela")];
-	const SCOPE = "relationship-map-pwd";
-
-	/** A map with its first board already on a page, as every map this module makes is. */
-	const mapped = () => mapWith("The Court", [{ name: "The Court" }]);
-	const names = page => Object.values(readGraph(page).nodes).map(node => node.name).sort();
-
-	it("makes a board called The Party and seats the party on it, with no lines", async () => {
-		const map = mapped();
-		const made = await syncPartyPage(map, PARTY);
-		expect(made.addedPeople).toBe(2);
-		const page = getPartyPage(map);
-		expect(page.name).toBe("The Party");
-		expect(names(page)).toEqual(["Pim", "Sela"]);
-		// What the player characters are to each other is the table's to say.
-		expect(readGraph(page).edges).toEqual({});
-	});
-
-	it("writes down who it seated, in the same create as the board itself", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		expect(getPartyPage(map).getFlag(SCOPE, "relationshipPartyBoard"))
-			.toEqual({ seated: ["Actor.pim", "Actor.sela"] });
-		expect(hadPartyPage(map)).toBe(true);
-	});
-
-	// Every other board is somewhere the table went; this one is who the table IS, so it opens the strip.
-	it("puts it at the front of the strip, in front of the board that was already there", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		expect(listMapPages(map).map(page => page.name)).toEqual(["The Party", "The Court"]);
-	});
-
-	// And a table that drags it somewhere else keeps it there: nothing on the next open moves it back.
-	it("leaves it wherever the table has dragged it", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		await moveMapPage(map, getPartyPage(map).id, null);
-		expect(listMapPages(map).map(page => page.name)).toEqual(["The Court", "The Party"]);
-		await syncPartyPage(map, [...PARTY, pc("marrec", "Marrec")]);
-		expect(listMapPages(map).map(page => page.name)).toEqual(["The Court", "The Party"]);
-	});
-
-	// A new board still belongs on the END of the strip, which is where the button that made it sits.
-	it("leaves a board added afterwards on the end", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		await createMapPage(map, "The Docks");
-		expect(listMapPages(map).map(page => page.name)).toEqual(["The Party", "The Court", "The Docks"]);
-	});
-
-	// ⚠ FOUND BY A FLAG AND NOT BY ITS NAME, because the page is renameable like any other and a table
-	// that calls it "Us" must not get a second one on the next open.
-	it("still knows its own board after it has been renamed", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		await renameMapPage(getPartyPage(map), "Us");
-		expect(getPartyPage(map)?.name).toBe("Us");
-		await syncPartyPage(map, PARTY);
-		expect(listMapPages(map)).toHaveLength(2);
-	});
-
-	it("adds nothing, and writes nothing, on the next open when nothing has changed", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		const page = getPartyPage(map);
-		const writes = page.updates.length;
-		expect(await syncPartyPage(map, PARTY)).toBe(null);
-		expect(page.updates.length).toBe(writes);
-	});
-
-	// A player who joins later appears on the board without anybody adding them.
-	it("brings a newcomer onto the board it already made", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		const made = await syncPartyPage(map, [...PARTY, pc("marrec", "Marrec")]);
-		expect(made.addedPeople).toBe(1);
-		expect(names(getPartyPage(map))).toEqual(["Marrec", "Pim", "Sela"]);
-		expect(getPartyPage(map).getFlag(SCOPE, "relationshipPartyBoard").seated)
-			.toEqual(["Actor.pim", "Actor.sela", "Actor.marrec"]);
-	});
-
-	// ⚠ THE LEDGER IS THE FEATURE. Who counts as a player character is a guess in a module that knows
-	// nothing about the system, so a guess that included one actor too many must cost one removal, once.
-	it("does not bring back somebody the table took off it", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		const page = getPartyPage(map);
-		const [pimId] = Object.entries(readGraph(page).nodes).find(([, node]) => node.name === "Pim");
-		await page.update(dropNodePatch(readGraph(page), pimId));
-		expect(names(page)).toEqual(["Sela"]);
-		expect(await syncPartyPage(map, PARTY)).toBe(null);
-		expect(names(page)).toEqual(["Sela"]);
-	});
-
-	it("counts a party member the table put on by hand, so taking them off sticks too", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		const page = getPartyPage(map);
-		const marrec = pc("marrec", "Marrec");
-		await page.update(addNodePatch("hand1", { uuid: marrec.uuid, name: marrec.name, x: 40, y: 40 }));
-		// Nobody is seated, and what is written down is that Marrec is accounted for.
-		expect(await syncPartyPage(map, [...PARTY, marrec])).toBe(null);
-		expect(page.getFlag(SCOPE, "relationshipPartyBoard").seated).toContain(marrec.uuid);
-		await page.update(dropNodePatch(readGraph(page), "hand1"));
-		expect(await syncPartyPage(map, [...PARTY, marrec])).toBe(null);
-		expect(names(page)).toEqual(["Pim", "Sela"]);
-	});
-
-	// ⚠ THE ONE THAT WOULD BE UNFORGIVABLE. Deleting the board is an answer, and a board that came back
-	// on the next open is a board nobody can be rid of. The mark that says "this map has had its party
-	// board" lives on the ENTRY, so it outlives the page it describes.
-	it("never makes it again once it has been deleted", async () => {
-		const map = mapped();
-		await syncPartyPage(map, PARTY);
-		expect(hadPartyPage(map)).toBe(true);
-		await deleteMapPage(getPartyPage(map));
-		expect(getPartyPage(map)).toBe(null);
-		expect(await syncPartyPage(map, PARTY)).toBe(null);
-		expect(getPartyPage(map)).toBe(null);
-	});
-
-	// An empty tab on a world where nobody has a character yet is chrome answering a question nobody
-	// asked. It arrives the first time the map is opened after there IS a party.
-	it("waits until there is somebody to put on it", async () => {
-		const map = mapped();
-		expect(await syncPartyPage(map, [])).toBe(null);
-		expect(listMapPages(map)).toHaveLength(1);
-		expect(hadPartyPage(map)).toBe(false);
-		await syncPartyPage(map, PARTY);
-		expect(getPartyPage(map)).toBeTruthy();
-	});
-
-	// Every write in this file is gated on OWNER, and this one runs unasked on somebody else's map.
-	it("writes nothing for a reader who may only look", async () => {
-		const map = mapped();
-		map.isOwner = false;
-		expect(await syncPartyPage(map, PARTY)).toBe(null);
-		expect(listMapPages(map)).toHaveLength(1);
-	});
-
-	// A map carrying its board on the ENTRY is moved onto a page before a second board is added, or the
-	// map would look as though opening it had swept everybody off.
-	it("moves a board kept on the entry onto a page before adding its own", async () => {
-		const legacy = entry("The old map", {
-			[SCOPE]: {
-				relationshipMap: {
-					version: 1,
-					nodes: { old1: { uuid: null, name: "Ordga", x: 30, y: 30 } },
-					edges: {},
-				},
-			},
-		});
-		await syncPartyPage(legacy, PARTY);
-		const pages = listMapPages(legacy);
-		expect(pages).toHaveLength(2);
-		expect(getPartyPage(legacy)).toBe(pages[0]);
-		expect(Object.values(readGraph(pages[1]).nodes).map(n => n.name)).toEqual(["Ordga"]);
-	});
-});
-
 // ── Which boards the players may look at ────────────────────────────────────────────────────────
 //
 // A board is hidden or shown one page at a time, and it is core's own ownership that says which:
@@ -882,11 +715,6 @@ describe("hiding a board from the players", () => {
 		expect(page.testUserPermission({ id: "u2" }, "OBSERVER")).toBe(false);
 	});
 
-	// A map is made with its first board on it, and that board is new like any other.
-	it("makes a new map's own first board hidden too", async () => {
-		await createRelationshipMap("Stillwater");
-		expect(created[0].pages[0].ownership.default).toBe(NONE);
-	});
 
 	// ⚠ THE ONE EXCEPTION, and it is not a new board at all: the version 1 conversion is carrying a
 	// board the whole table has been looking at onto a page underneath them. Made hidden it would
@@ -970,9 +798,8 @@ describe("hiding a board from the players", () => {
 		expect(page.updates).toEqual([]);
 	});
 
-	// ⚠ THE TWO PLACES THAT MUST NOT ASK THE VISIBLE LIST. A conversion that found no pages on a map
-	// whose every board is hidden would helpfully make a fresh one and sweep the entry's flags past
-	// it; a delete rail that counted only what this reader can see would let the last board go.
+	// ⚠ THE PLACE THAT MUST NOT ASK THE VISIBLE LIST. A conversion that found no pages on a map whose
+	// every board is hidden would helpfully make a fresh one and sweep the entry's flags past it.
 	it("reasons about every board, and not only the ones in front of the reader", async () => {
 		asPlayer();
 		const map = mapWith("Stillwater", [
@@ -981,13 +808,6 @@ describe("hiding a board from the players", () => {
 		]);
 		expect(await ensureFirstMapPage(map)).toBe(listMapPages(map)[0]);
 		expect(listMapPages(map)).toHaveLength(2);
-
-		const one = mapWith("Marshford", [
-			{ id: "q1", name: "Marshford" },
-			{ id: "q2", name: "Gordin's Delve", hidden: true },
-		]);
-		expect(await deleteMapPage(listMapPages(one)[0])).toBe(true);
-		expect(await deleteMapPage(listMapPages(one)[0])).toBe(false);
 	});
 });
 
