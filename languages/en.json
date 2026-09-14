@@ -187,7 +187,7 @@
       "noneHintReadonly": "Whoever keeps this collection has not added a map to it yet."
     },
     "hideLabels": "Hide labels",
-    "hideLabelsHint": "Take the writing off every line on this map, leaving the faces and the lines between them. On a crowded map the words are what makes it hard to read. Nothing is deleted or changed, nobody else's window is touched, and unticking this brings every word straight back. Click a line and its own words come back while you have it, so you can still read and write on one.",
+    "hideLabelsHint": "Hide the words on the lines so a crowded map is easier to read; clicking a line shows its words.",
     "labelsNow": {
       "on": "The words along the lines are hidden. The lines and everybody on the map are still there.",
       "off": "The words along the lines are showing again."
