@@ -3189,7 +3189,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// one whose line was too short to fit its words and is being dragged longer may break a
 			// few pixels narrow until the drop repaints. One gesture, and nothing is written wrong.
 			painted: this._drawn?.painted ?? null,
-			parts: indexEdgeParts(board),
+			// The index the last paint already walked, where there is one. See `_sayLine`.
+			parts: this._drawn?.parts ?? indexEdgeParts(board),
 		};
 		return this._preview;
 	}
@@ -4079,8 +4080,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const board = id ? this._boardEl() : null;
 		if (!board) return;
 		// Found by walking and reading `dataset`, never by a selector built out of a stored id -- see
-		// `indexEdgeParts` itself, which says why.
-		const parts = indexEdgeParts(board).get(id);
+		// `indexEdgeParts` itself, which says why -- and in the index the last paint already walked, where
+		// there is one: this runs on every repaint with a line held, straight after that walk.
+		const parts = (this._drawn?.parts ?? indexEdgeParts(board)).get(id);
 		for (const el of [parts?.line, parts?.hit, parts?.label]) {
 			if (!el) continue;
 			el.classList?.add("is-picked");
