@@ -51,9 +51,10 @@ async function askForNewRelationshipMap() {
 		buttonLabel: localize("RELMAP.maps.newGo"),
 		placeholder: localize("RELMAP.maps.namePlaceholder"),
 	});
-	// null is the dismissal and "" is a name nobody typed; only the first means "never mind".
+	// null is the dismissal and "" is a name nobody typed; only the first means "never mind". The blank
+	// is named by `createRelationshipMap`, through the same rule a rename keeps.
 	if (name === null) return null;
-	return await createRelationshipMap(name || localize("RELMAP.untitled"));
+	return await createRelationshipMap(name);
 }
 
 /**

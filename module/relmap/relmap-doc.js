@@ -38,6 +38,7 @@
 
 import { MODULE_ID } from "../module-id.js";
 import { localize } from "../utils/i18n.js";
+import { clipText } from "../utils/strings.js";
 import { deletionEntry } from "../utils/foundry-compat.js";
 import { moveWithin, insertionIndexIn } from "../utils/list-reorder.js";
 import {
@@ -153,9 +154,12 @@ export function canEditRelationshipMap(doc) {
 export async function createRelationshipMap(name) {
 	if (!canCreateRelationshipMap()) return null;
 	const folder = await ensureRelationshipMapFolder();
-	const title = name || RELMAP_FOLDER_NAME;
 	return await globalThis.JournalEntry.create({
-		name: title,
+		// THROUGH THE RULE A RENAME KEEPS, so a collection is born with a name it could have been renamed
+		// to: trimmed, never blank, and no longer than `RELMAP_MAP_NAME_MAX`. Stored whole, a pasted
+		// paragraph stayed a paragraph until somebody opened the rename box and saved it untouched, which
+		// cut it short and announced a rename nobody had made.
+		name: relationshipMapName(name),
 		folder: folder?.id ?? null,
 		ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER },
 		flags: {
@@ -182,7 +186,7 @@ export const RELMAP_MAP_NAME_MAX = 60;
 /** A map's name, made safe to store: trimmed, shortened, and never blank, since core's `name` field
  * refuses an empty one outright and would throw rather than answer. */
 export function relationshipMapName(raw) {
-	const want = String(raw ?? "").trim().slice(0, RELMAP_MAP_NAME_MAX).trim();
+	const want = clipText(String(raw ?? "").trim(), RELMAP_MAP_NAME_MAX).trim();
 	return want || localize("RELMAP.untitled");
 }
 
@@ -434,7 +438,7 @@ export function resolveMapBoard(entry, pageId = null) {
  * refuses a blank one outright, so a caller handing us an empty string would throw rather than
  * being told no. */
 export function mapPageName(raw) {
-	const want = String(raw ?? "").trim().slice(0, RELMAP_PAGE_NAME_MAX).trim();
+	const want = clipText(String(raw ?? "").trim(), RELMAP_PAGE_NAME_MAX).trim();
 	return want || localize("RELMAP.pages.untitled");
 }
 

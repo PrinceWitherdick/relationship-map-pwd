@@ -90,11 +90,12 @@ describe("the map somebody asks for", () => {
 	});
 
 	// Taken rather than refused, exactly as an empty board name is: the map can be renamed from its own
-	// window, and a dialog that rejects a save over a blank field has to explain itself.
-	it("falls back to a plain name when nothing was typed", async () => {
+	// window, and a dialog that rejects a save over a blank field has to explain itself. The name it is
+	// given instead is the document layer's to choose, through the rule a rename keeps.
+	it("makes the collection when nothing was typed, and leaves naming the blank to the document layer", async () => {
 		box.typed = "";
 		await promptForNewRelationshipMap();
-		expect(createRelationshipMap).toHaveBeenCalledWith("Relationship Map");
+		expect(createRelationshipMap).toHaveBeenCalledWith("");
 	});
 
 	it("makes nothing when the box is dismissed", async () => {

@@ -1551,7 +1551,7 @@ describe("lighting one person's web", () => {
 			classes: ["relmap-label-text"],
 			attrs: {
 				role: "button", tabindex: "0", "data-relmap-words": id,
-				"aria-label": id + ". Click to change or delete this line.", "data-tooltip": id,
+				"aria-label": id + ". Click to change or delete this line.", "data-tooltip-text": id,
 				x: "10", y: "20", transform: "rotate(15 10 20)",
 			},
 		});
@@ -1605,7 +1605,7 @@ describe("lighting one person's web", () => {
 		expect(words.attrs.role).toBeUndefined();
 		expect(words.attrs.tabindex).toBeUndefined();
 		expect(words.attrs["aria-label"]).toBeUndefined();
-		expect(words.attrs["data-tooltip"]).toBeUndefined();
+		expect(words.attrs["data-tooltip-text"]).toBeUndefined();
 	});
 
 	// THE COPY IS DRAWN WHERE THE ORIGINAL IS. A caption is placed and turned by attributes on its

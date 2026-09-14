@@ -13,6 +13,7 @@
 - Two person choosers open at once each get a window of their own, pressing Relationship Maps twice quickly opens one name box and one map window, and opening a minimized map brings it back. The windows reopened after a reload are remembered separately for each world.
 - Keys pressed on the board or its line bar stay there: Space no longer pauses the game, and Delete no longer deletes the tokens selected on the scene. Zooming while dragging or panning keeps the board under the cursor, and a line let go of over another window is not drawn.
 - Arrowheads on curved lines reach the portrait, and captions are placed the same way for every player whatever language they use.
+- Names and captions show in tooltips exactly as typed, and text cut to its length limit never breaks an emoji in half.
 
 ## 1.0.0
 

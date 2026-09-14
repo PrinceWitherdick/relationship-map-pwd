@@ -18,6 +18,7 @@ import {
 	RELMAP_BOARD_ASPECT, RELMAP_CAPTION_FLOOR_PX, RELMAP_CAPTION_PX, boardMetrics, clampPct,
 	freeSpot, ringsLayout,
 } from "../utils/relmap-geometry.js";
+import { clipText } from "../utils/strings.js";
 import { normalizeHex } from "./relmap-ink.js";
 
 /**
@@ -322,7 +323,7 @@ export function emptyGraph() {
 
 const str = (v, max = 0) => {
 	const s = typeof v === "string" ? v : v === null || v === undefined ? "" : String(v);
-	return max ? s.slice(0, max) : s;
+	return max ? clipText(s, max) : s;
 };
 
 /**

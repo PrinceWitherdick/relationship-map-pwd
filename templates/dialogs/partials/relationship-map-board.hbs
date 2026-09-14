@@ -138,11 +138,16 @@
 
         AND IT IS ABSENT ON NEARLY EVERY LINE. Zero is "whatever the sheet sets", which is every
         line on every board drawn before a reader could ask for a bigger one, so the attribute is
-        printed only where somebody actually chose. --}}
+        printed only where somebody actually chose.
+
+        ⚠ `data-tooltip-text` AND NOT `data-tooltip`, here and on the faces below. Core draws a plain
+        `data-tooltip` as HTML, and a caption is whatever somebody at the table typed: "owes <Marcus>
+        40gp" came up as "owes  40gp", and an image tag in a caption was fetched for every reader who
+        hovered it. The `-text` spelling is set as text. --}}
   {{#each labels}}
   <g class="relmap-label" data-relmap-edge="{{id}}" data-relmap-who="{{a}} {{b}}">
     <text class="relmap-label-text" role="button" tabindex="0"
-          data-relmap-words="{{id}}" data-tooltip="{{tooltip}}" aria-label="{{ariaLabel}}"
+          data-relmap-words="{{id}}" data-tooltip-text="{{tooltip}}" aria-label="{{ariaLabel}}"
           {{#if px}}style="--relmap-caption-px: {{px}}px"{{/if}}
           x="{{x}}" y="{{y}}" transform="rotate({{angle}} {{x}} {{y}})">{{text}}</text>
   </g>
@@ -166,7 +171,7 @@
 <div class="relmap-node{{#if missing}} is-missing{{/if}}"
      data-relmap-node="{{id}}" style="left:{{left}}%;top:{{top}}%">
   <button type="button" class="relmap-face" data-relmap-open="{{id}}"
-          data-tooltip="{{tooltip}}" aria-label="{{tooltip}}">
+          data-tooltip-text="{{tooltip}}" aria-label="{{tooltip}}">
     <span class="relmap-portrait">
       {{#if img}}
       <img src="{{img}}" alt="" draggable="false" style="{{imgStyle}}">
@@ -205,7 +210,7 @@
         the person and counts the lines going with them -- see RelationshipMapWindow#_removePerson
         for why that one asks where rubbing out a LINE does not. --}}
   <button type="button" class="relmap-bin" data-relmap-remove="{{id}}"
-          data-tooltip="{{removeLabel}}" aria-label="{{removeLabel}}">
+          data-tooltip-text="{{removeLabel}}" aria-label="{{removeLabel}}">
     <i class="fas fa-trash"></i>
   </button>
   {{/if}}

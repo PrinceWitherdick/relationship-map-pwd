@@ -17,7 +17,7 @@
 
 import { RelmapDialog } from "../utils/relmap-dialog.js";
 import { currentScheme, themedDialogClasses, windowClasses } from "../utils/window-theme.js";
-import { escHtml } from "../utils/strings.js";
+import { clipText, escHtml } from "../utils/strings.js";
 import { openOrFocus } from "../utils/open-or-focus.js";
 import { openingSize } from "../utils/opening-size.js";
 import { getDragEventData, renderTemplate } from "../utils/foundry-compat.js";
@@ -3091,7 +3091,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const said = can
 			? format(`RELMAP.history.${way}Hint`, { what })
 			: localize(`RELMAP.history.${way}Nothing`);
-		button.dataset.tooltip = said;
+		// AS TEXT: `what` is the reader's own change, and it carries names anybody at the table can type
+		// ("taking Ordga off"). Core draws a plain `data-tooltip` as HTML.
+		button.dataset.tooltipText = said;
 		button.setAttribute("aria-label", said);
 	}
 
@@ -4261,7 +4263,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			if (!copy) continue;
 			// Everything that makes the original findable, aimable or announceable.
 			for (const el of [copy, ...(copy.querySelectorAll?.("*") ?? [])]) {
-				for (const gone of ["id", "tabindex", "role", "aria-label", "data-tooltip",
+				for (const gone of ["id", "tabindex", "role", "aria-label", "data-tooltip", "data-tooltip-text",
 					"data-relmap-edge", "data-relmap-who", "data-relmap-words"]) {
 					el.removeAttribute?.(gone);
 				}
@@ -4910,7 +4912,7 @@ function fitCaption(text, roomPx, measure) {
 	// which is still a mark saying there is something written here to open.
 	const room = Number.isFinite(Number(roomPx)) ? Math.max(0, Number(roomPx)) : Infinity;
 	if (full <= room) return { text: said, width: full };
-	const cutAt = n => `${said.slice(0, n).trimEnd()}${ELLIPSIS}`;
+	const cutAt = n => `${clipText(said, n).trimEnd()}${ELLIPSIS}`;
 	let lo = 0;
 	let hi = said.length;
 	while (lo < hi) {

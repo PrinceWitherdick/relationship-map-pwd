@@ -111,7 +111,7 @@ describe("the board template", () => {
 		const html = render(boardContext());
 		expect(html).toContain('data-relmap-remove="n1"');
 		expect(html).toContain('data-relmap-remove="n2"');
-		expect(html).toContain('data-tooltip="Take Elena off this map" aria-label="Take Elena off this map"');
+		expect(html).toContain('data-tooltip-text="Take Elena off this map" aria-label="Take Elena off this map"');
 	});
 
 	// ⚠ AND NOT ONE ON A BOARD THIS READER MAY ONLY LOOK AT. Same gate as the handle, and the more
@@ -842,8 +842,10 @@ describe("what a caption says when you rest on it", () => {
 	// instruction repeated on eighty lines buries that under something the reader learned once.
 	it("shows the caption, not an instruction about clicking it", () => {
 		const html = render(boardContext());
-		expect(html).toContain('data-tooltip="exes"');
-		expect(html).not.toContain('data-tooltip="exes. Click');
+		// AS TEXT: a caption is whatever somebody typed, and core draws a plain `data-tooltip` as HTML.
+		expect(html).toContain('data-tooltip-text="exes"');
+		expect(html).not.toContain('data-tooltip="exes');
+		expect(html).not.toContain('data-tooltip-text="exes. Click');
 	});
 
 	// A screen reader announces a button by its accessible name and gets no other clue that it is

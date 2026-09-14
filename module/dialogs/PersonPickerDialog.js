@@ -364,7 +364,8 @@ export class PersonPickerDialog extends RelmapDialog {
 			chip.type = "button";
 			chip.className = "relmap-person-picker-chip";
 			chip.dataset.unpick = id;
-			chip.dataset.tooltip = drop;
+			// As TEXT: a person's name is whatever somebody typed, and core draws `data-tooltip` as HTML.
+			chip.dataset.tooltipText = drop;
 			chip.setAttribute("aria-label", drop);
 			const text = document.createElement("span");
 			text.className = "relmap-person-picker-chip-name";

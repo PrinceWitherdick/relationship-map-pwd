@@ -316,6 +316,15 @@ describe("making a new map", () => {
 		expect(created[0].folder).toBe("f1");
 	});
 
+	// The rule a rename keeps, from the first write. A collection born with a name no rename could give
+	// it is one the first untouched save of the rename box cuts short and announces as renamed.
+	it("names it the way a rename would: trimmed, never blank, never over the limit", async () => {
+		await createRelationshipMap(`  ${"x".repeat(RELMAP_MAP_NAME_MAX + 20)}  `);
+		await createRelationshipMap("   ");
+		expect(created[0].name).toHaveLength(RELMAP_MAP_NAME_MAX);
+		expect(created[1].name).toBe("Relationship Map");
+	});
+
 	it("still makes the map when there is no folder to file it in", async () => {
 		canCreateFolder = false;
 		await createRelationshipMap("Mine");

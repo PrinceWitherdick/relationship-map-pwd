@@ -72,6 +72,7 @@ import {
 	resolveInkHex,
 } from "../relmap/relmap-ink.js";
 import { RELMAP_CAPTION_PX, curvePoints } from "./relmap-geometry.js";
+import { clipText, dropLastChar } from "./strings.js";
 
 /**
  * How long the caption field sits still before what is in it is written to the shared document.
@@ -725,7 +726,8 @@ export class RelmapTieBar {
 		// assigned, so a sentence grown past it here would paint on the line and then be cut short
 		// by the store on the way to the document.
 		const cap = Number(field.maxLength) > 0 ? Number(field.maxLength) : Infinity;
-		field.value = back ? said.slice(0, -1) : `${said}${ev.key}`.slice(0, cap);
+		// A whole character either way, and never half of an emoji's pair (utils/strings.js).
+		field.value = back ? dropLastChar(said) : clipText(`${said}${ev.key}`, cap);
 		// The caret goes to the end, which is where the next letter belongs: this is the reader
 		// carrying on with a sentence, not returning to a spot in the middle of one.
 		const end = field.value.length;
@@ -979,7 +981,10 @@ export class RelmapTieBar {
 			const key = button.dataset.relmapTieValue;
 			const words = said[key] ?? "";
 			if (words) {
-				button.setAttribute("data-tooltip", words);
+				// ⚠ AS TEXT, with the plain `data-tooltip` the render printed taken off. These are two
+				// people's names, which anybody at the table can type, and core draws `data-tooltip` as HTML.
+				button.setAttribute("data-tooltip-text", words);
+				button.removeAttribute?.("data-tooltip");
 				button.setAttribute("aria-label", words);
 			}
 			const glyph = icons[key];
