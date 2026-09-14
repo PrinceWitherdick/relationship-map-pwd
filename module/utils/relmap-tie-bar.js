@@ -795,10 +795,7 @@ export class RelmapTieBar {
 			// reader pressed one button. `close` flushes, so the pending write is dropped BEFORE it
 			// is called rather than left for it to find -- both of them: a colour chosen a moment
 			// ago is the same second change recorded against a line that is going away.
-			this._forgetWriting();
-			this._forgetInk();
-			this._forgetSize();
-			this.close();
+			this.discard();
 			this._onRub(id);
 			return;
 		}
@@ -860,6 +857,22 @@ export class RelmapTieBar {
 		this._box = null;
 		this.el.hidden = true;
 		this._onPicked("");
+	}
+
+	/**
+	 * Let go WITHOUT writing anything, for a line whose board has gone out from under the reader.
+	 *
+	 * ⚠ THE ONE WAY OFF A LINE THAT SAVES NOTHING, and it is not a second Escape. A board rubbed out
+	 * or hidden at the far end of the table takes this line with it, and every write this bar could
+	 * still make goes through the window's board handle, which by then answers for whichever board
+	 * survives, where this line's id names nothing. So what was held is thrown away first, which
+	 * leaves `close`'s own flush nothing to write.
+	 */
+	discard() {
+		this._forgetInk();
+		this._forgetSize();
+		this._forgetWriting();
+		this.close();
 	}
 
 	/** Let go and put the focus back where the reader came from. */

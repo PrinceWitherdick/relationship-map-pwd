@@ -97,5 +97,8 @@ export async function chooseRelationshipMap({ current = null } = {}) {
 	});
 	if (!pick) return null;
 	if (pick === NEW_MAP_CHOICE) return promptForNewRelationshipMap();
-	return maps.find(entry => entry.id === pick) ?? null;
+	// ⚠ LOOKED UP AGAIN, AND NOT IN THE LIST THE CHOOSER WAS BUILT FROM. The chooser is not modal, and a
+	// collection the GM deleted while it was up is still in that list: opened from it, the window came up
+	// over a deleted document, with every tool enabled and every write failing.
+	return listRelationshipMaps().find(entry => entry.id === pick) ?? null;
 }

@@ -25,6 +25,7 @@
     "addedCount": "{count} people have been added to the map.",
     "alreadyHere": "{name} is already on this map.",
     "everyoneAdded": "Every actor in this world is already on this map.",
+    "boardMoved": "The map changed while you were answering, so nothing was changed.",
     "linkHint": "Drag to another person to draw a line, or click to choose one.",
     "linkFrom": "Draw a line from {name}",
     "linkFromTitle": "Draw a line from {name} to whom?",

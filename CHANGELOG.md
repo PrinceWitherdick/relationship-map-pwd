@@ -8,6 +8,8 @@
 - Clearer names in the window: a tab is a map, and the set of maps it belongs to is a collection ("Rename collection", "Delete collection", "Collections").
 - A collection with no maps you can see has nothing to draw on, and the Collections list counts its maps correctly. The Relationship Maps button opens a collection that has a map you can see, where there is one.
 - Adding, deleting and reordering maps follows who owns the collection, so a player can start a map in a collection whose other maps are hidden from them.
+- Changes no longer land on the wrong map or bring back somebody who was taken off: anything still being saved when its map is deleted, hidden or left is dropped, and an answer given in a chooser after the map changed underneath it is not used. Undo straight after moving somebody with the arrow keys undoes that move.
+- An open map window updates its tools as soon as you are given, or lose, the right to edit the map.
 
 ## 1.0.0
 

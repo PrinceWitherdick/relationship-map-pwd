@@ -178,6 +178,19 @@ describe("choosing a map", () => {
 		expect(promptForText).toHaveBeenCalledTimes(1);
 	});
 
+	// The chooser is not modal. A collection the GM deleted while it was up is still in the list it was
+	// built from, and opened from there the window comes up over a document that no longer exists.
+	it("opens nothing for a collection deleted while the chooser was up", async () => {
+		world.maps = [court, docks];
+		box.picked = "docks";
+		pickContentOption.mockImplementationOnce(args => {
+			box.offered.push(args);
+			world.maps = [court];
+			return Promise.resolve(box.picked);
+		});
+		expect(await chooseRelationshipMap()).toBeNull();
+	});
+
 	it("opens nothing when the chooser is dismissed", async () => {
 		world.maps = [court];
 		expect(await chooseRelationshipMap()).toBeNull();

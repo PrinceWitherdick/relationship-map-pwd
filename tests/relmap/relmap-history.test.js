@@ -421,6 +421,22 @@ describe("a burst that the reader means as one change", () => {
 		stack.record(moved());
 		expect(stack.depth).toBe(2);
 	});
+
+	// ⚠ A FOLD IS STILL A NEW CHANGE. Caption a line, nudge somebody, undo the nudge, recolour the line
+	// inside the caption's breath: the recolour folds into the caption, and the nudge it leaves on the
+	// redo stack is a step the reader already took back.
+	it("forgets what was undone even when the new change folds into the step below it", () => {
+		const stack = history();
+		stack.record(typed("f"));
+		clock += 200;
+		stack.record({ ...describeWrite(graph(), nodePatch("elena", { x: 80 })), coalesce: "node:elena" });
+		stack.commitUndo();
+		expect(stack.canRedo).toBe(true);
+		clock += 200;
+		stack.record(typed("friends"));
+		expect(stack.depth).toBe(1);
+		expect(stack.canRedo).toBe(false);
+	});
 });
 
 // One map is several named boards on several pages, and the reader flicks between them with the tab

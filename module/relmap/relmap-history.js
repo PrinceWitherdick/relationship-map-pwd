@@ -347,6 +347,11 @@ export class RelmapHistory {
 			top.back = mergeBackSteps(top.back, back);
 			top.label = label || top.label;
 			top.at = at;
+			// ⚠ AND WHAT WAS UNDONE IS FORGOTTEN HERE TOO. Folded or not, this is a new change: the step
+			// below the one just taken back can still be inside its breath (caption a line, nudge
+			// somebody, undo the nudge, recolour the line), and a redo left standing behind the fold
+			// would move somebody the reader had already put back.
+			this._forward.length = 0;
 			return top;
 		}
 		const entry = { forward, back, label, coalesce, at };

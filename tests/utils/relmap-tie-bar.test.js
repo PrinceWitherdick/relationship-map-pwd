@@ -351,6 +351,33 @@ function make(dom, over = {}) {
 	return { handlers, bar: new RelmapTieBar(dom.root, handlers) };
 }
 
+describe("letting go of a line whose board has gone", () => {
+	// ⚠ THE ONE WAY OFF A LINE THAT WRITES NOTHING. The board this line was on has been rubbed out or
+	// hidden, and every write the bar could still make would land on whichever board survives.
+	it("throws away what was being written, puts the words back, and closes", () => {
+		const dom = barDom();
+		const { bar, handlers } = make(dom);
+		bar.open("e1");
+		dom.words.value = "were never a thing";
+		bar.discard();
+		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(dom.words.value).toBe("were once a thing");
+		expect(dom.bar.hidden).toBe(true);
+		expect(bar.id).toBe("");
+	});
+
+	// Beside its mirror image, so that the test above cannot pass against a bar that writes nothing
+	// on the way off a line at all.
+	it("is not what closing does, which writes it", () => {
+		const dom = barDom();
+		const { bar, handlers } = make(dom);
+		bar.open("e1");
+		dom.words.value = "were never a thing";
+		bar.close();
+		expect(handlers.onField).toHaveBeenCalledWith("e1", { label: "were never a thing" });
+	});
+});
+
 describe("opening the bar on a line", () => {
 	let dom;
 	beforeEach(() => { dom = barDom(); });

@@ -331,6 +331,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// who moves one face and tabs to the next inside it has two portraits waiting on the same
 		// write, and a single slot would keep whichever was touched last. See `_writeNudge`.
 		this._pendingNudge = new Map();
+		// Nudges written and not yet back from the server, by portrait. See `_writeNudge`.
+		this._landingNudge = new Map();
 		// AND THE SAME FOR A CAPTION SLID ALONG ITS LINE BY THE ARROW KEYS, keyed by the link rather
 		// than by the person. Its own map and not a second kind of entry in the one above, because
 		// the two write different patches to different halves of the graph -- and one map holding
@@ -547,6 +549,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// the page is gone and `mapPage` has already fallen through to another one. The reader would
 		// be left looking at a board that no longer exists, with every write vanishing. Resolved
 		// through `mapPage`, so it also heals an id that has gone stale.
+		//
+		// ⚠ AND ANYTHING HALF-WRITTEN ON THE BOARD IT WAS PINNED TO GOES, where this pass has landed on a
+		// different one without `_leaveBoard` being asked first. Every path that MOVES the reader asks it;
+		// this is the render that was not asked for a move and got one anyway -- the entry's ownership
+		// lowered, say, so a player can no longer see the page they were typing on. Left alone, the tie
+		// bar's flush in `activateListeners` and the nudge's own debounce wrote what was meant for that
+		// board onto this one, where its ids name nobody: a caption on no line, a nameless portrait.
+		if (this._pageId && page?.id !== this._pageId) this._dropUnwritten();
 		this._pageId = page?.id ?? null;
 		// AND WHICH OF THE FOUR SHAPES THAT WAS, for the page hooks to tell a collection gaining its
 		// first map from one gaining another. See `onPageChange` in `_wireSync`.
@@ -568,6 +578,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 			canOrder: canEdit && canAddMap, legacy: board.kind === "legacy",
 		});
 		this._pagesSaid = pageTabs;
+		// AND REMEMBERED, for the ownership hook: a board that stops being this reader's to edit wants a
+		// different bar and footer, which only a render can draw. See `_wireSync`.
+		this._drewEditable = canEdit;
 		return {
 			// NO `title` HERE. The bar used to open with the map's name, which the window's own
 			// title bar was already saying an inch above it; the name the template still needs is
@@ -1202,6 +1215,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 				this._rememberPen(fields);
 				return this._write(edgePatch(id, fields), {
 					label: localize("RELMAP.history.editedLink"), coalesce: `edge:${id}`,
+					onto: { kind: "edges", id },
 				});
 			},
 			// THE KEYSTROKES THEMSELVES, WHICH ARE NOT A WRITE. The bar has no text box on it any
@@ -1241,8 +1255,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 			canMove: () => this.canEdit,
 			canRemove: () => this.canEdit,
 			nodeAt: id => {
-				// An unwritten nudge is where the portrait actually is, so it answers first.
+				// An unwritten nudge is where the portrait actually is, so it answers first -- and then one
+				// written and not yet back from the server, which the document has not heard about either.
+				// Read off the document in that breath, the next arrow key started from where the portrait
+				// had been, and the walk jumped back a step. See `_writeNudge`.
 				if (this._pendingNudge.has(id)) return { ...this._pendingNudge.get(id) };
+				if (this._landingNudge?.has(id)) return { ...this._landingNudge.get(id) };
 				const node = readGraph(this.boardDoc).nodes[id];
 				return node ? { x: node.x, y: node.y } : null;
 			},
@@ -1378,7 +1396,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// answering `isOwner`. The board would go on looking live, with every tool enabled, writing
 		// into a document that is not there.
 		on("deleteJournalEntry", doc => {
-			if (doc?.id === this._entryId) this.close();
+			if (doc?.id !== this._entryId) return;
+			// ⚠ AND WHAT WAS HALF-WRITTEN GOES WITH IT, before the close can flush it. `_leaveBoard`'s rail
+			// cannot see this one: the `entry` getter falls back to the stale copy, whose pages are all
+			// still in memory, so the board looks as present as ever -- and the flush went to a document
+			// the server no longer has, and came back as a notice telling the reader to check their
+			// permissions.
+			this._dropUnwritten();
+			this.close();
 		});
 
 		// ── And the same three questions again, one document down ────────────────────────────
@@ -1416,11 +1441,18 @@ export class RelationshipMapWindow extends RelmapDialog {
 				// is built from: has the BOARD under this reader changed, or has the strip's being
 				// there at all? Either one is a different shape, a different bar and a different
 				// fit, and the hide-the-board-I-am-standing-on case above is the first of them.
-				const pages = this.mapPages;
-				const board = this.mapPage;
-				const moved = (board?.id ?? null) !== this._pageId;
+				const board = this._boardState;
+				const moved = (board.page?.id ?? null) !== this._pageId;
 				const strip = !!this._root?.querySelector(".relmap-pages-strip");
-				if (this.rendered && (moved || strip !== (this.canAddMap || pages.length > 1))) {
+				// ⚠ AND A THIRD: WHETHER THE BOARD IS STILL THIS READER'S TO EDIT. The bar's tools, the footer
+				// and the read-only mark are drawn by the render from `canEdit`, so a GM setting this very page
+				// to Observer in core's own ownership dialog -- same board, same strip -- left every tool
+				// standing over a board whose every press was refused, and the reverse left a reader who had
+				// just been given the board with no way to draw on it until they opened the window again.
+				// Compared only once a render has said what it drew.
+				const rightsMoved = typeof this._drewEditable === "boolean"
+					&& this._mayEdit(board) !== this._drewEditable;
+				if (this.rendered && (moved || strip !== this._showsPages(board) || rightsMoved)) {
 					// Only where the board actually changed, and for the reason the delete path
 					// drops it: the id names a board that is no longer theirs, and left standing it
 					// would pin them to nothing. A strip appearing over the SAME board is not a
@@ -1466,9 +1498,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 				// The board under this reader has just been rubbed out at the far end of the table.
 				// `mapPage` falls through to the first surviving page, and all three of these
 				// belonged to the one that is gone — as does anything half-written, which is asked
-				// for first so that it cannot be filed against the page fallen through to. A flush
-				// aimed at the deleted document writes nothing, which is the right amount to write
-				// to a board that no longer exists. See `_leaveBoard`.
+				// for first, while `_pageId` still names the board it belongs to. It is thrown away
+				// rather than written: by now `boardDoc` answers for the page fallen through to, or
+				// for nothing once a collection's last map has gone. See `_leaveBoard`.
 				this._leaveBoard();
 				this._pageId = null;
 				this._lit = null;
@@ -2805,14 +2837,26 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 *        See RELMAP_COALESCE_MS in relmap/relmap-history.js.
 	 * @param {boolean} [options.remember]  whether this is a change to remember at all.
 	 */
-	async _write(patch, { announce = "", label = "", coalesce = "", remember = true } = {}) {
+	async _write(patch, { announce = "", label = "", coalesce = "", remember = true, onto = null } = {}) {
 		if (!patch) return false;
 		const doc = this.boardDoc;
+		// ⚠ NO BOARD, NO WRITE, AND NOTHING SAID. `applyPatch` refuses a null document anyway, but only
+		// after the announcement below: a person added from a chooser that outlived its board was
+		// announced as added, with nothing written and nothing to say so.
+		if (!doc) return false;
 		// ⚠ READ BEFORE THE WRITE. What would put a change back can only be worked out from the
 		// board as it stands now — after `applyPatch` the old values are gone. The cost is one
 		// extra normalize per edit, which is a fraction of what a repaint already does and only
 		// happens on a write the reader made by hand.
-		const change = remember ? describeWrite(readGraph(doc), patch) : null;
+		const graph = remember || onto ? readGraph(doc) : null;
+		// ⚠ A CHANGE TO SOMEBODY WHO IS NO LONGER THERE IS NOT WRITTEN. `onto` names the person or the line
+		// a leaf write is about, and a leaf written after another reader has taken them off makes them
+		// again out of that one field: `normalizeGraph` keeps a node that has nothing but coordinates, so a
+		// drag landing a moment after the removal stood a blank, nameless portrait on the board for the
+		// whole table (and a caption written onto a rubbed-out line left invisible junk and a dead undo
+		// step). Asked of the board the write is about to land on, in the same breath.
+		if (onto && !graph[onto.kind]?.[onto.id]) return false;
+		const change = remember ? describeWrite(graph, patch) : null;
 		// Announced BEFORE the write. The write repaints the board and takes the live region's
 		// neighbours with it; announcing afterwards can land on a node already replaced.
 		if (announce) this._announce(announce);
@@ -2905,6 +2949,11 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// record itself a microtask later — emptying the forward stack under a redo already in
 		// flight, and leaving the board right while the two stacks were wrong.
 		await this._tieBar?.flush();
+		// ⚠ AND THE ARROW KEYS' MOVES, FOR THE SAME REASON. A nudge or a caption slide is held for a breath
+		// after the last key (NUDGE_COMMIT_MS), and an undo pressed inside that breath peeked at the change
+		// BEFORE it -- took that one back instead -- and then the nudge landed, recorded itself and emptied
+		// the redo stack under the undo that had just been made.
+		await Promise.all([this._writeNudge(), this._writeSeats()]);
 		const history = this._history;
 		const entry = way === "back" ? history.peekUndo() : history.peekRedo();
 		const commit = () => (way === "back" ? history.commitUndo() : history.commitRedo());
@@ -3201,9 +3250,21 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// so a reader who tabs from one face to the next inside it has moved two people on one
 		// timer, and writing only the second would put the first back where the document still has
 		// it — in front of somebody who watched themselves move it.
-		for (const [id, at] of pending) this._moveNode(id, at, { coalesce: `node:${id}` });
+		//
+		// ⚠ AND EACH IS HELD AS "LANDING" UNTIL THE SERVER HAS IT. The document does not hear about a write
+		// until the round trip is over, and the next arrow key asks where the portrait is (`nodeAt`):
+		// answered off the document in that breath, a reader who paused and walked on found the portrait
+		// back where the pause had started. Let go only where no later nudge has replaced it since.
+		const landing = this._landingNudge ??= new Map();
+		const writes = pending.map(([id, at]) => {
+			landing.set(id, at);
+			return this._moveNode(id, at, { coalesce: `node:${id}` }).finally(() => {
+				if (landing.get(id) === at) landing.delete(id);
+			});
+		});
 		// A repaint that was held back while the keys were coming lands now.
 		this._flushPendingSync();
+		return Promise.all(writes);
 	}
 
 	// ── Sliding a caption along its own line ────────────────────────────────
@@ -3297,7 +3358,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const seat = this._slideCaption(id, t);
 		if (!seat) return false;
 		return this._write(edgePatch(id, { seat }), {
-			label: localize("RELMAP.history.movedCaption"), coalesce,
+			label: localize("RELMAP.history.movedCaption"), coalesce, onto: { kind: "edges", id },
 		});
 	}
 
@@ -3351,11 +3412,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// ONE STEP FOR A RUN OF ARROW KEYS, keyed by the line, for the reason `_writeNudge` gives:
 		// a reader walking a caption along its stroke pauses several times on the way, and each
 		// pause recorded separately would be a dozen undos to put one sentence back.
-		for (const [id, seat] of pending) {
-			this._seatCaptionAt(id, seat, { coalesce: `seat:${id}` });
-		}
+		const writes = pending.map(([id, seat]) => this._seatCaptionAt(id, seat, { coalesce: `seat:${id}` }));
 		// A repaint that was held back while the keys were coming lands now.
 		this._flushPendingSync();
+		return Promise.all(writes);
 	}
 
 	/**
@@ -3369,6 +3429,17 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * "edited a link" step in the undo of a board with no such link.
 	 */
 	_leaveBoard() {
+		// ⚠ AND ONLY WHILE THAT BOARD IS STILL THERE TO WRITE TO. A board rubbed out or hidden under the
+		// reader has already gone from the strip by the time its hook calls this, so `boardDoc` has
+		// fallen through to a board that survives -- or, with a collection's last map gone, to nothing.
+		// Flushed there, a nudge would stand a nameless portrait on a map the reader never touched,
+		// under an id that names nobody on it. What was waiting is thrown away instead, which is the
+		// right amount to write to a board that no longer exists.
+		const here = this.boardDoc;
+		if (this._pageId ? here?.id !== this._pageId : !here) {
+			this._dropUnwritten();
+			return;
+		}
 		this._writeNudge();
 		// AND THE CAPTION SLIDES WITH THEM, for the same reason and with the same trap: `boardDoc`
 		// answers for whatever page the window points at NOW, so a seat flushed a line later would
@@ -3378,10 +3449,25 @@ export class RelationshipMapWindow extends RelmapDialog {
 	}
 
 	/**
-	 * No read first. `readGraph` normalizes every node and every edge to build a fresh object, and
-	 * the only thing this wanted from it was whether the node still exists — which decides nothing:
-	 * `nodePatch` clamps the coordinates itself, and a patch naming a node that has since been
-	 * removed is dropped by `normalizeGraph` on the next repaint rather than resurrecting it.
+	 * Everything half-written on a board that is no longer there, thrown away unwritten.
+	 *
+	 * The other half of `_leaveBoard`, over the same three things: the portraits and the captions the
+	 * arrow keys have moved, and whatever the tie bar is holding. The render that follows replaces
+	 * everything they were drawn on.
+	 */
+	_dropUnwritten() {
+		this._pendingNudge.clear();
+		this._landingNudge?.clear();
+		this._pendingSeat.clear();
+		this._preview = null;
+		this._tieBar?.discard();
+	}
+
+	/**
+	 * ONTO SOMEBODY STILL ON THE BOARD, and nobody else (`_write`'s `onto`). A patch naming a person who
+	 * has been taken off since is NOT dropped by `normalizeGraph`, whatever this used to say here: it
+	 * keeps a node that has nothing but coordinates, and the drop brought them back as a blank, nameless
+	 * portrait for the whole table.
 	 *
 	 * ⚠ THE PORTRAIT IS PAINTED HERE, BEFORE THE AWAIT, and that placement is the whole of it.
 	 * A drag moves the portrait by the two custom properties the drag layer writes, never by its
@@ -3409,8 +3495,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 			el.style.left = `${spot.x}%`;
 			el.style.top = `${spot.y}%`;
 		}
-		await this._write(nodePatch(id, spot), {
-			label: localize("RELMAP.history.moved"), coalesce,
+		return this._write(nodePatch(id, spot), {
+			label: localize("RELMAP.history.moved"), coalesce, onto: { kind: "nodes", id },
 		});
 	}
 
@@ -3435,7 +3521,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 
 	/** The handle CLICKED rather than dragged: ask who, then draw the same line. */
 	async _linkFrom(id) {
-		const graph = readGraph(this.boardDoc);
+		const doc = this.boardDoc;
+		const graph = readGraph(doc);
 		const others = this._peopleOnMap(graph).filter(person => person.id !== id);
 		// THROUGH THE SAME READER AS THE ROWS. Built off the stored name instead, the heading called
 		// somebody by the name the map remembers while every row beneath it used the name on their
@@ -3446,7 +3533,23 @@ export class RelationshipMapWindow extends RelmapDialog {
 			return;
 		}
 		const to = await pickPersonToLink({ from, options: others });
-		if (to) await this._createLink(id, to);
+		if (to && this._stillOn(doc)) await this._createLink(id, to);
+	}
+
+	/**
+	 * Is the board a question was asked about still the one in front of this reader?
+	 *
+	 * ⚠ FOR EVERY EDIT THAT WAITS ON A DIALOG. The chooser and the confirm are not modal: while one is up
+	 * the reader can switch tab, and another client can delete or hide the board. `_write` resolves its
+	 * board when it writes, so an answer given afterwards went to whichever board was up by then -- people
+	 * seated on a map nobody chose them for, at spots worked out on a different one -- or, with no board
+	 * left at all, was announced as done with nothing written. The answer is dropped instead, and the
+	 * reader is told that it was.
+	 */
+	_stillOn(doc) {
+		if (this.boardDoc === doc) return true;
+		ui.notifications?.info?.(localize("RELMAP.boardMoved"));
+		return false;
 	}
 
 	/**
@@ -3619,7 +3722,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * outcome rather than answering a question the reader has to hold in their head.
 	 */
 	async _removePerson(id) {
-		const graph = readGraph(this.boardDoc);
+		const doc = this.boardDoc;
+		const graph = readGraph(doc);
 		const node = graph.nodes[id];
 		if (!node) return;
 		const links = Object.values(graph.edges).filter(e => e.a === id || e.b === id).length;
@@ -3631,8 +3735,13 @@ export class RelationshipMapWindow extends RelmapDialog {
 			confirm: format("RELMAP.removeConfirm", { name: node.name }),
 			cancel: localize("RELMAP.removeCancel"),
 		});
-		if (!ok) return;
-		await this._write(dropNodePatch(graph, id), {
+		if (!ok || !this._stillOn(doc)) return;
+		// READ AGAIN NOW THE ANSWER IS IN, for the reason `_addPerson` gives: a line drawn to them while the
+		// question was up is one this removal has to take with it, and somebody else may have taken them
+		// off already.
+		const now = readGraph(doc);
+		if (!now.nodes[id]) return;
+		await this._write(dropNodePatch(now, id), {
 			announce: format("RELMAP.removed", { name: node.name }),
 			label: format("RELMAP.history.removed", { name: node.name }),
 		});
@@ -3647,7 +3756,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 	}
 
 	async _addPerson() {
-		const graph = readGraph(this.boardDoc);
+		const doc = this.boardDoc;
+		const graph = readGraph(doc);
 		const already = new Set(Object.values(graph.nodes).map(n => n.uuid).filter(Boolean));
 		const actors = (game.actors?.contents ?? [])
 			.filter(actor => !already.has(actor.uuid));
@@ -3666,14 +3776,21 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// Keyed rather than scanned: a reader adding half a faction to a board with the rest of it
 		// already on would otherwise walk the candidate list once per person they ticked.
 		const byUuid = new Map(actors.map(actor => [actor.uuid, actor]));
-		const picked = (chosen ?? []).map(uuid => byUuid.get(uuid)).filter(Boolean);
+		if (!chosen?.length || !this._stillOn(doc)) return;
+		// ⚠ READ AGAIN NOW THE ANSWER IS IN. The chooser is not modal, and the table goes on working while
+		// it is up: somebody else putting the same person on this board, or seating somebody right where
+		// this reader's arrivals were about to go. Seated against the board as it was when the question
+		// was asked, those people arrived twice, or on each other's laps.
+		const now = readGraph(doc);
+		const onBoard = new Set(Object.values(now.nodes).map(n => n.uuid).filter(Boolean));
+		const picked = chosen.map(uuid => byUuid.get(uuid)).filter(actor => actor && !onBoard.has(actor.uuid));
 		if (!picked.length) return;
 		if (picked.length === 1) {
 			const [actor] = picked;
-			await this._addNodeFor(actor, freeSpot(takenSpots(graph), { r: this._boardSize(graph).r }));
+			await this._addNodeFor(actor, freeSpot(takenSpots(now), { r: this._boardSize(now).r }));
 			return;
 		}
-		await this._addNodesFor(graph, picked);
+		await this._addNodesFor(now, picked);
 	}
 
 	/**

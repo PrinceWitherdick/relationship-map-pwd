@@ -2801,6 +2801,80 @@ describe("which board this window is standing on", () => {
 	});
 });
 
+describe("a map rubbed out while something on it was still waiting to be written", () => {
+	function hooksOf() {
+		const on = new Map();
+		globalThis.Hooks = { on: (name, fn) => on.set(name, fn), off: vi.fn() };
+		return on;
+	}
+
+	// ⚠ THE LAST MAP IN A COLLECTION. With nothing left to fall through to, a nudge flushed through
+	// `boardDoc` used to land on the collection itself, which then opened as a version 1 map with a
+	// nameless face on it.
+	it("writes nothing onto the collection when its last map goes", () => {
+		const on = hooksOf();
+		const entry = pagedEntry([{ id: "p1", name: "Stillwater", graph: TWO_PEOPLE }]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._wireSync();
+		app._pendingNudge.set("elena", { x: 55, y: 55 });
+		app._pendingSeat.set("link1", 0.4);
+		const bar = { flush: vi.fn(), discard: vi.fn(), destroy: vi.fn() };
+		app._tieBar = bar;
+		const [gone] = entry.pages.contents.splice(0, 1);
+		on.get("deleteJournalEntryPage")(gone);
+		expect(entry.updates).toEqual([]);
+		expect(gone.updates).toEqual([]);
+		expect(app._pendingNudge.size).toBe(0);
+		expect(app._pendingSeat.size).toBe(0);
+		expect(bar.flush).not.toHaveBeenCalled();
+		expect(bar.discard).toHaveBeenCalled();
+		expect(app._boardState.kind).toBe("none");
+		expect(app.render).toHaveBeenCalled();
+	});
+
+	// The same trap one map earlier, where it was never nothing: `boardDoc` had fallen through to the
+	// map that survives, and the nudge stood a nameless portrait on it.
+	it("writes nothing onto the map that survives when the one being edited goes", () => {
+		const on = hooksOf();
+		const entry = TWO_BOARDS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._wireSync();
+		app._pendingNudge.set("elena", { x: 55, y: 55 });
+		const [gone, survivor] = entry.pages.contents;
+		entry.pages.contents.splice(0, 1);
+		on.get("deleteJournalEntryPage")(gone);
+		expect(survivor.updates).toEqual([]);
+		expect(app._pendingNudge.size).toBe(0);
+		expect(app.render).toHaveBeenCalled();
+	});
+
+	// Hidden under a player is the other way a board goes out from under them: they could not write
+	// to it now, and the board they fall through to is not the one the nudge was about.
+	it("writes nothing onto another map when the one being edited is hidden from this player", () => {
+		globalThis.game.user = { id: "u1", isGM: false };
+		const on = hooksOf();
+		const entry = TWO_BOARDS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._wireSync();
+		app._pendingNudge.set("elena", { x: 55, y: 55 });
+		const [hidden, other] = entry.pages.contents;
+		hidden.ownership = { default: 0 };
+		on.get("updateJournalEntryPage")(hidden, { ownership: { default: 0 } });
+		expect(other.updates).toEqual([]);
+		expect(hidden.updates).toEqual([]);
+		expect(app.render).toHaveBeenCalled();
+	});
+
+	// And a board that is still there is still written to, which is the half `_leaveBoard` exists for.
+	it("still writes what was waiting onto a board the reader simply switches away from", () => {
+		const entry = TWO_BOARDS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._pendingNudge.set("elena", { x: 55, y: 55 });
+		app._leaveBoard();
+		expect(entry.pages.contents[0].updates).toHaveLength(1);
+	});
+});
+
 describe("adding a board from the strip", () => {
 	// OPENED ON, not merely created. A page made at the end of a strip the reader may not even be
 	// looking at the end of, and not shown, is a button whose only visible effect is a tab lighting
@@ -4499,6 +4573,102 @@ describe("how heavily this reader wants the board drawn", () => {
 	});
 });
 
+// ── An edit whose board has moved on under it ───────────────────────────────────────────────────
+//
+// Every one of these is a write made a moment AFTER the question it answers: a drop landing after
+// somebody else took the person off, a confirm answered after the reader changed tab, a debounce
+// firing after a render moved the board. Each used to write what it was holding somewhere it no
+// longer belonged.
+
+describe("a write about somebody who is no longer there", () => {
+	// ⚠ A LEAF WRITTEN ONTO NOBODY MAKES THEM AGAIN. `normalizeGraph` keeps a node that has nothing but
+	// coordinates, so a drop landing a moment after the removal stood a blank, nameless portrait on
+	// the board for the whole table.
+	it("does not bring back somebody taken off while their portrait was being moved", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		expect(await app._moveNode("gone", { x: 40, y: 40 })).toBe(false);
+		expect(entry.updates).toEqual([]);
+	});
+
+	it("still moves somebody who is there", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		expect(await app._moveNode("elena", { x: 40, y: 40 })).toBe(true);
+		expect(entry.updates).toHaveLength(1);
+	});
+
+	it("writes no caption onto a line rubbed out while it was being typed", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		const written = await app._write(edgePatch("gone", { label: "hello" }), { onto: { kind: "edges", id: "gone" } });
+		expect(written).toBe(false);
+		expect(entry.updates).toEqual([]);
+	});
+
+	// Announced first and refused after, the reader was told something had happened that had not.
+	it("says nothing, and writes nothing, where there is no board at all", async () => {
+		const { app, live } = windowFor(null, { entry: pagedEntry([]) });
+		expect(await app._write(edgePatch("x", { label: "hi" }), { announce: "Added." })).toBe(false);
+		expect(live.textContent ?? "").toBe("");
+	});
+});
+
+describe("the arrow keys, the server and the undo", () => {
+	// The document does not hear about a write until the round trip is over, and the next arrow key asks
+	// where the portrait is: answered off the document, the walk jumped back a step.
+	it("holds a nudge on its way to the server as where the portrait is, until it lands", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		let land;
+		entry.update = patch => { entry.updates.push(patch); return new Promise(done => { land = done; }); };
+		app._pendingNudge.set("elena", { x: 44, y: 30 });
+		const written = app._writeNudge();
+		expect(app._landingNudge.get("elena")).toEqual({ x: 44, y: 30 });
+		land(entry);
+		await written;
+		expect(app._landingNudge.has("elena")).toBe(false);
+	});
+
+	// An undo pressed inside the nudge's breath took back the change BEFORE it, and then the nudge
+	// landed and emptied the redo stack under the undo just made.
+	it("writes the arrow keys' last moves before it takes anything back", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		app._pendingNudge.set("elena", { x: 44, y: 30 });
+		await app._stepHistoryNow("back");
+		expect(entry.updates).toHaveLength(1);
+		expect(app._pendingNudge.size).toBe(0);
+	});
+});
+
+describe("a question that outlives the board it was asked about", () => {
+	let was;
+	beforeEach(() => {
+		was = globalThis.ui;
+		globalThis.ui = { notifications: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+	});
+	afterEach(() => { globalThis.ui = was; });
+
+	// The confirm is not modal. Answered after the reader changed tab, it took nobody off the board
+	// they were looking at -- and said it had.
+	it("takes nobody off a board the reader has left while it was being asked, and says so", async () => {
+		const entry = TWO_BOARDS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._confirm = vi.fn(async () => { app._pageId = "p2"; return true; });
+		await app._removePerson("elena");
+		expect(entry.pages.contents.every(page => page.updates.length === 0)).toBe(true);
+		expect(globalThis.ui.notifications.info).toHaveBeenCalled();
+	});
+
+	// A line drawn to them while the question was up is a line this removal has to take with it.
+	it("takes with them a line drawn to them while the question was up", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		const { app, entry } = windowFor(graph);
+		app._confirm = vi.fn(async () => {
+			graph.edges.late = { a: "stefan", b: "elena", label: "", ink: "rose", dir: "none", note: "" };
+			return true;
+		});
+		await app._removePerson("elena");
+		expect(Object.keys(entry.updates[0]).some(key => key.includes("late"))).toBe(true);
+	});
+});
+
 describe("who may arrange the maps of a collection", () => {
 	// The README tells players they may add maps to a collection, and one whose every map is hidden from
 	// them is exactly a collection they may want to start one in.
@@ -4536,5 +4706,58 @@ describe("deleting a version 1 map", () => {
 		expect(app._confirm.mock.calls[0][0].body).toBe(TABLE.format("RELMAP.maps.deleteBody", {
 			name: "The people of Stillwater", boards: 1, people: 2,
 		}));
+	});
+});
+
+describe("a board that goes out from under a render", () => {
+	// `_leaveBoard`'s rail cannot see this one: the stale entry's pages are all still in memory.
+	it("throws away what was half-written when the collection itself is deleted", () => {
+		const on = new Map();
+		globalThis.Hooks = { on: (name, fn) => on.set(name, fn), off: vi.fn() };
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		app.close = vi.fn();
+		app._wireSync();
+		app._pendingNudge.set("elena", { x: 44, y: 30 });
+		on.get("deleteJournalEntry")({ id: "map1" });
+		expect(app._pendingNudge.size).toBe(0);
+		expect(app.close).toHaveBeenCalled();
+		expect(entry.updates).toEqual([]);
+	});
+
+	// The entry's ownership lowered, say, so a player can no longer see the page they were nudging on:
+	// the render lands them on another board, and the nudge's ids name nobody there.
+	it("throws away what was half-written for a board a render has moved the reader off", async () => {
+		globalThis.game.user = { id: "u1", isGM: false };
+		const entry = pagedEntry([
+			{ id: "p1", name: "Stillwater", graph: TWO_PEOPLE, hidden: true },
+			{ id: "p2", name: "Marshford", graph: EMPTY_BOARD },
+		]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._pendingNudge.set("elena", { x: 44, y: 30 });
+		await app.getData();
+		expect(app._pageId).toBe("p2");
+		expect(app._pendingNudge.size).toBe(0);
+	});
+
+	it("keeps it where the render stays on the same board", async () => {
+		const { app } = windowFor(null, { entry: TWO_BOARDS(), pageId: "p1" });
+		app._pendingNudge.set("elena", { x: 44, y: 30 });
+		await app.getData();
+		expect(app._pendingNudge.size).toBe(1);
+	});
+
+	// A GM in core's own ownership dialog: the same board, the same strip, and no pen any more. The
+	// tools are drawn by the render, so only a render can take them away.
+	it("renders again when the board's own ownership takes the edit away", () => {
+		const on = new Map();
+		globalThis.Hooks = { on: (name, fn) => on.set(name, fn), off: vi.fn() };
+		const entry = TWO_BOARDS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._drewEditable = true;
+		app._wireSync();
+		const page = entry.pages.contents[0];
+		Object.defineProperty(page, "isOwner", { get: () => false, configurable: true });
+		on.get("updateJournalEntryPage")(page, { ownership: { default: 2 } });
+		expect(app.render).toHaveBeenCalled();
 	});
 });
