@@ -7,8 +7,14 @@
 //
 // PER CLIENT ON PURPOSE: window layout is personal, not shared world state. The "Reopen maps after a
 // reload" client setting turns it off.
+//
+// ⚠ AND NESTED UNDER THE WORLD ID, which a client setting has to do for itself (relmap/relmap-last.js
+// says why at length): it lives in localStorage under `namespace.key` alone, shared by every world this
+// browser opens, and every save writes the whole record. Kept flat, a GM who left a map open in one
+// world and spent an evening in another came back to nothing, because the second world's first save
+// wrote its own list, empty, over the first world's.
 
-import { getBooleanSetting, getObjectSetting, setSetting } from "../settings.js";
+import { getBooleanSetting, getObjectSetting, setSetting, worldKey } from "../settings.js";
 
 /**
  * The window class this follows, by NAME. AppV1 builds a window's render and close hooks out of
@@ -65,13 +71,43 @@ function collectState() {
 	return state;
 }
 
+/**
+ * A record saved before worlds were kept apart: the windows themselves, keyed by uuid. A uuid always
+ * has a dot in it and a world id never does, which is the whole of how the two are told apart.
+ */
+const isFlatKey = key => key.includes(".");
+
+/**
+ * This world's saved windows.
+ *
+ * A flat record is read as this world's own. Any window in it that belonged to another world resolves
+ * to no document on the way back in, which `restoreOpenWindows` already steps over, and the next save
+ * writes the record nested.
+ */
+function savedHere() {
+	const all = getObjectSetting(STATE_SETTING);
+	const mine = all[worldKey()];
+	if (mine && typeof mine === "object" && !Array.isArray(mine)) return mine;
+	return Object.fromEntries(Object.entries(all).filter(([key]) => isFlatKey(key)));
+}
+
+/** The whole record to write: every other world's windows as they were, and this world's as they are. */
+function recordWithThisWorld() {
+	const all = {};
+	for (const [key, value] of Object.entries(getObjectSetting(STATE_SETTING))) {
+		if (!isFlatKey(key)) all[key] = value;
+	}
+	all[worldKey()] = collectState();
+	return all;
+}
+
 // Debounced: a drag or a burst of repaints should not hammer the setting. The unload flush below
 // captures whatever the debounce has not written yet.
 function schedulePersist() {
 	if (!getBooleanSetting(TOGGLE_SETTING, true)) return;
 	clearTimeout(saveTimer);
 	saveTimer = setTimeout(() => {
-		Promise.resolve(setSetting(STATE_SETTING, collectState())).catch(() => {});
+		Promise.resolve(setSetting(STATE_SETTING, recordWithThisWorld())).catch(() => {});
 	}, 500);
 }
 
@@ -79,7 +115,7 @@ function schedulePersist() {
 function flushNow() {
 	if (!getBooleanSetting(TOGGLE_SETTING, true)) return;
 	try {
-		Promise.resolve(setSetting(STATE_SETTING, collectState())).catch(() => {});
+		Promise.resolve(setSetting(STATE_SETTING, recordWithThisWorld())).catch(() => {});
 	} catch (_err) { /* nothing to be done mid-unload */ }
 }
 
@@ -124,7 +160,7 @@ export function clampToViewport(pos, vw = globalThis.window?.innerWidth ?? 1920,
  */
 export async function restoreOpenWindows(open) {
 	if (!getBooleanSetting(TOGGLE_SETTING, true) || typeof open !== "function") return;
-	const state = getObjectSetting(STATE_SETTING);
+	const state = savedHere();
 	const depth = uuid => (Number.isFinite(state[uuid]?.zIndex) ? state[uuid].zIndex : -Infinity);
 	const uuids = Object.keys(state).sort((a, b) => depth(a) - depth(b));
 

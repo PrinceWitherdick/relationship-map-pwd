@@ -111,6 +111,23 @@ describe("the map somebody asks for", () => {
 		expect(canCreateRelationshipMap).toHaveBeenCalled();
 		expect(promptForText).not.toHaveBeenCalled();
 	});
+
+	// The box is not modal. Two presses on the sidebar button in a world with no collection yet would
+	// each open one, and each could make a collection under the same name.
+	it("opens one box, and makes one collection, however often it is asked for while that box is up", async () => {
+		const [first, second] = await Promise.all([
+			promptForNewRelationshipMap(), promptForNewRelationshipMap(),
+		]);
+		expect(promptForText).toHaveBeenCalledTimes(1);
+		expect(createRelationshipMap).toHaveBeenCalledTimes(1);
+		expect(second).toBe(first);
+	});
+
+	it("asks again once the first box has been answered", async () => {
+		await promptForNewRelationshipMap();
+		await promptForNewRelationshipMap();
+		expect(promptForText).toHaveBeenCalledTimes(2);
+	});
 });
 
 describe("which map an open lands on", () => {

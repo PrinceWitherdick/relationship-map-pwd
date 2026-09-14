@@ -10,6 +10,7 @@
 - Adding, deleting and reordering maps follows who owns the collection, so a player can start a map in a collection whose other maps are hidden from them.
 - Changes no longer land on the wrong map or bring back somebody who was taken off: anything still being saved when its map is deleted, hidden or left is dropped, and an answer given in a chooser after the map changed underneath it is not used. Undo straight after moving somebody with the arrow keys undoes that move.
 - An open map window updates its tools as soon as you are given, or lose, the right to edit the map.
+- Two person choosers open at once each get a window of their own, pressing Relationship Maps twice quickly opens one name box and one map window, and opening a minimized map brings it back. The windows reopened after a reload are remembered separately for each world.
 
 ## 1.0.0
 

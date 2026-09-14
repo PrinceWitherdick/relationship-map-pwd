@@ -4,6 +4,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // close hooks AppV1 builds out of the window's class name, persists a snapshot of each to a client
 // setting, and opens them again on ready. These tests drive it through the hooks it installs, over a
 // fake settings store.
+//
+// The setting is one record for every world this browser opens, so it is kept per world: this client
+// is in world "w1", and anything under another key belongs to somewhere else.
 
 const hooks = new Map();
 const once = new Map();
@@ -26,6 +29,7 @@ beforeEach(() => {
 	globalThis.game = {
 		...globalThis.game,
 		user: { id: "me" },
+		world: { id: "w1" },
 		settings: {
 			get: (_scope, key) => store[key],
 			set: (_scope, key, value) => {
@@ -71,7 +75,9 @@ describe("following the open map windows", () => {
 		fire("renderRelationshipMapWindow", mapWindow());
 		vi.advanceTimersByTime(500);
 		expect(store.openWindowsState).toEqual({
-			"JournalEntry.map1": { left: 10, top: 20, width: 900, height: 700, zIndex: 101, pageId: "page1" },
+			w1: {
+				"JournalEntry.map1": { left: 10, top: 20, width: 900, height: 700, zIndex: 101, pageId: "page1" },
+			},
 		});
 	});
 
@@ -80,7 +86,7 @@ describe("following the open map windows", () => {
 		installWindowRestore(() => null);
 		fire("renderRelationshipMapWindow", mapWindow({ minimized: true }));
 		vi.advanceTimersByTime(500);
-		expect(store.openWindowsState["JournalEntry.map1"].minimized).toBe(true);
+		expect(store.openWindowsState.w1["JournalEntry.map1"].minimized).toBe(true);
 	});
 
 	it("forgets a window once it is closed", async () => {
@@ -91,7 +97,20 @@ describe("following the open map windows", () => {
 		vi.advanceTimersByTime(500);
 		fire("closeRelationshipMapWindow", app);
 		vi.advanceTimersByTime(500);
-		expect(store.openWindowsState).toEqual({});
+		expect(store.openWindowsState).toEqual({ w1: {} });
+	});
+
+	// ⚠ ONE SETTING FOR EVERY WORLD THIS BROWSER OPENS, and each save writes the whole of it. A save
+	// that wrote only this world's windows wiped every other world's: a GM who spent an evening in a
+	// second world came back to find nothing reopened in the first.
+	it("keeps the windows another world saved when it saves this one's", async () => {
+		store.openWindowsState = { w2: { "JournalEntry.theirs": { left: 1, top: 1 } } };
+		const { installWindowRestore } = await load();
+		installWindowRestore(() => null);
+		fire("renderRelationshipMapWindow", mapWindow());
+		vi.advanceTimersByTime(500);
+		expect(store.openWindowsState.w2).toEqual({ "JournalEntry.theirs": { left: 1, top: 1 } });
+		expect(Object.keys(store.openWindowsState.w1)).toEqual(["JournalEntry.map1"]);
 	});
 
 	it("follows nothing that is not a floating window over a world map", async () => {
@@ -118,7 +137,7 @@ describe("reopening them", () => {
 
 	it("reopens each saved map where it was, on the board it was on", async () => {
 		store.openWindowsState = {
-			"JournalEntry.map1": { left: 10, top: 20, width: 900, height: 700, pageId: "page7" },
+			w1: { "JournalEntry.map1": { left: 10, top: 20, width: 900, height: 700, pageId: "page7" } },
 		};
 		const map = entry("JournalEntry.map1");
 		globalThis.fromUuid = vi.fn(async () => map);
@@ -130,7 +149,7 @@ describe("reopening them", () => {
 	});
 
 	it("minimizes a window that was left minimized, once it is open", async () => {
-		store.openWindowsState = { "JournalEntry.map1": { left: 10, top: 20, minimized: true } };
+		store.openWindowsState = { w1: { "JournalEntry.map1": { left: 10, top: 20, minimized: true } } };
 		globalThis.fromUuid = vi.fn(async uuid => entry(uuid));
 		const app = { openMinimized: vi.fn() };
 		const { restoreOpenWindows } = await load();
@@ -142,9 +161,11 @@ describe("reopening them", () => {
 	// Every window lands on top as it opens, so the one that was in front has to open last.
 	it("reopens the back-most window first, so the one that was in front ends in front", async () => {
 		store.openWindowsState = {
-			"JournalEntry.front": { left: 1, top: 1, zIndex: 300 },
-			"JournalEntry.back": { left: 2, top: 2, zIndex: 100 },
-			"JournalEntry.middle": { left: 3, top: 3, zIndex: 200 },
+			w1: {
+				"JournalEntry.front": { left: 1, top: 1, zIndex: 300 },
+				"JournalEntry.back": { left: 2, top: 2, zIndex: 100 },
+				"JournalEntry.middle": { left: 3, top: 3, zIndex: 200 },
+			},
 		};
 		globalThis.fromUuid = vi.fn(async uuid => entry(uuid));
 		const opened = [];
@@ -152,6 +173,28 @@ describe("reopening them", () => {
 		await restoreOpenWindows(doc => { opened.push(doc.uuid); return null; });
 		await vi.runAllTimersAsync();
 		expect(opened).toEqual(["JournalEntry.back", "JournalEntry.middle", "JournalEntry.front"]);
+	});
+
+	it("reopens nothing another world left open", async () => {
+		store.openWindowsState = { w2: { "JournalEntry.map1": { left: 10, top: 20 } } };
+		globalThis.fromUuid = vi.fn(async uuid => entry(uuid));
+		const open = vi.fn();
+		const { restoreOpenWindows } = await load();
+		await restoreOpenWindows(open);
+		await vi.runAllTimersAsync();
+		expect(open).not.toHaveBeenCalled();
+	});
+
+	// A record saved before the worlds were kept apart is the windows themselves, keyed by uuid.
+	it("still reads a record saved before the worlds were kept apart", async () => {
+		store.openWindowsState = { "JournalEntry.map1": { left: 10, top: 20 } };
+		const map = entry("JournalEntry.map1");
+		globalThis.fromUuid = vi.fn(async () => map);
+		const open = vi.fn(() => null);
+		const { restoreOpenWindows } = await load();
+		await restoreOpenWindows(open);
+		await vi.runAllTimersAsync();
+		expect(open).toHaveBeenCalledWith(map, expect.objectContaining({ left: 10, top: 20 }));
 	});
 
 	it("brings a window saved on a bigger screen back onto this one", async () => {
@@ -162,8 +205,10 @@ describe("reopening them", () => {
 
 	it("leaves closed a map that is gone, or that this reader may no longer see", async () => {
 		store.openWindowsState = {
-			"JournalEntry.gone": { left: 1, top: 1 },
-			"JournalEntry.hidden": { left: 2, top: 2 },
+			w1: {
+				"JournalEntry.gone": { left: 1, top: 1 },
+				"JournalEntry.hidden": { left: 2, top: 2 },
+			},
 		};
 		globalThis.fromUuid = vi.fn(async uuid => (uuid.endsWith("gone")
 			? null
@@ -177,7 +222,7 @@ describe("reopening them", () => {
 
 	it("reopens nothing while the reader has turned it off", async () => {
 		store.restoreWindowsOnReload = false;
-		store.openWindowsState = { "JournalEntry.map1": { left: 1, top: 1 } };
+		store.openWindowsState = { w1: { "JournalEntry.map1": { left: 1, top: 1 } } };
 		globalThis.fromUuid = vi.fn(async uuid => entry(uuid));
 		const open = vi.fn();
 		const { restoreOpenWindows } = await load();

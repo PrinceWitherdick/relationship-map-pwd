@@ -61,7 +61,9 @@ export function registerSettings({ onHighContrast = null } = {}) {
 		default: true,
 	});
 
-	// Internal: the map windows open right now, rewritten as they open, close and move.
+	// Internal: the map windows open right now, rewritten as they open, close and move. Nested by world id
+	// for the reason `lastRelationshipBoard` is. Shape: { "<worldId>": { "<map uuid>": snapshot } }. See
+	// utils/window-restore.js.
 	game.settings.register(MODULE_ID, "openWindowsState", {
 		scope: "client",
 		config: false,

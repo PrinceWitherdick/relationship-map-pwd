@@ -14,6 +14,9 @@ import { defaultBoard } from "./relmap-last.js";
 /** The chooser's row for making a new map. Not an id any document can have. */
 export const NEW_MAP_CHOICE = "__new__";
 
+/** The name box and the create behind it while they are out, so a second press joins them. */
+let asking = null;
+
 /**
  * Ask what the new map is called, and make it.
  *
@@ -24,13 +27,25 @@ export const NEW_MAP_CHOICE = "__new__";
  * back to "Relationship Map", and the map can be renamed from its own window. A dialog that rejects
  * the save over a blank field has to explain itself, for a mistake that costs one rename to fix.
  *
+ * ⚠ ONE BOX PER PRESS, HOWEVER MANY PRESSES. The box is not modal, so two clicks on the sidebar
+ * button in a world with no collection yet would each open one, and each could make a collection. A
+ * press made while the box is up, or while the collection it named is still being made, gets the
+ * first press's answer. (Both presses then open that collection, which utils/open-or-focus.js turns
+ * into one window.)
+ *
  * @returns {Promise<JournalEntry|null>}  the new map, or null when the reader dismissed the box or
  *          may not make one.
  */
-export async function promptForNewRelationshipMap() {
+export function promptForNewRelationshipMap() {
 	// Asked BEFORE the box opens, not only inside `createRelationshipMap`, so a reader who may not
 	// make a map is never asked to name one.
-	if (!canCreateRelationshipMap()) return null;
+	if (!canCreateRelationshipMap()) return Promise.resolve(null);
+	asking ??= askForNewRelationshipMap().finally(() => { asking = null; });
+	return asking;
+}
+
+/** The box itself, and the create behind it. See `promptForNewRelationshipMap`. */
+async function askForNewRelationshipMap() {
 	const name = await promptForText({
 		title: localize("RELMAP.maps.newTitle"),
 		buttonLabel: localize("RELMAP.maps.newGo"),
