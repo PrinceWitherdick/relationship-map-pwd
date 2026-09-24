@@ -812,7 +812,7 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    is still on every button in the dial for a screen reader, and the tooltip on the dial says the
    rest.
 
-   ⚠ A FIXED BOX AND A COLLAPSED LINE, for the reason the pop-out's glyph has one: a glyph is placed
+   ⚠ A FIXED BOX AND A COLLAPSED LINE, because a glyph is placed
    in its line box by its baseline, and a box taller than the glyph leaves half-leading above it that
    grows with the font scale. Squared off here so the three marks sit on the same centre line as the
    numbers and the arrows whatever size the interface is set to. */
@@ -864,7 +864,7 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 /* ⚠ AND THE GLYPH INSIDE IT LOSES CORE'S LABEL GAP. `body.game .app button > i` carries a
    `margin-right: 3px` for a label that is not coming, and on a button this small three pixels is
    most of what centring there is. Set on all four sides so a core change to any one of them lands
-   the same way. See `.relmap-popout > i`, which says this at length. */
+   the same way. */
 .relmap-heft-step > i {
 	margin: 0;
 	font-size: 0.7em;
