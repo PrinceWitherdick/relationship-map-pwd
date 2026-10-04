@@ -60,6 +60,7 @@ const { listVisibleMapPages, readGraph } = await import("../../module/relmap/rel
 const { forgetAllHistory } = await import("../../module/relmap/relmap-history.js");
 const { dropNodePatch, edgePatch } = await import("../../module/relmap/relmap-store.js");
 const { RELMAP_SEAT_MIN } = await import("../../module/relmap/relmap-store.js");
+const { RELMAP_REACH_MAX, RELMAP_REACH_MIN } = await import("../../module/utils/relmap-geometry.js");
 const { RELMAP_BOARD_ASPECT, RELMAP_HEAD_PX, curveWithGap, edgeLabelAnchor } =
 	await import("../../module/utils/relmap-geometry.js");
 const { SEAT_STEP } = await import("../../module/utils/relmap-drag.js");
@@ -184,10 +185,15 @@ function windowFor(graph = TWO_PEOPLE, {
 	// have stood up. One map for the whole board, so two faces nudged inside one debounce both
 	// land — see `_pendingNudge` on the class.
 	app._pendingNudge = new Map();
+	// And the nudges written and not yet back from the server, beside them. See `_landingNudge` on the class.
+	app._landingNudge = new Map();
 	// And the captions an arrow key has slid along their lines but not written yet, which the
 	// constructor stands up beside that one. Its own map for the reason the class gives: the two
 	// flush into different halves of the graph.
 	app._pendingSeat = new Map();
+	// Who this reader has selected to move together, which the constructor stands up empty. See
+	// `_selected` on the class.
+	app._selected = [];
 	app.id = "relmap-map1";
 	app._pageId = pageId;
 	app._pagesSaid = null;
@@ -214,6 +220,16 @@ beforeEach(() => {
 	globalThis.Hooks = { on: vi.fn(), off: vi.fn() };
 	globalThis.fromUuidSync = () => null;
 });
+
+/** A `ui.notifications` whose calls can be asked about, for every test in the enclosing describe. */
+function stubNotifications() {
+	let was;
+	beforeEach(() => {
+		was = globalThis.ui;
+		globalThis.ui = { notifications: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+	});
+	afterEach(() => { globalThis.ui = was; });
+}
 
 describe("repainting when somebody else changes the map", () => {
 	// The whole reason `sync` exists rather than a `render`. A render would re-fit the board and
@@ -454,6 +470,26 @@ describe("nudging a portrait from the keyboard", () => {
 		expect(wrote).toContain("71");
 	});
 
+	// ⚠ BUT TWO PEOPLE NUDGED ONE AFTER THE OTHER ARE TWO MOVES. Written as one, they were one step of
+	// the undo, and folded with neither one's own run of keys.
+	it("writes two people nudged one after the other as a step each", async () => {
+		const { app, entry, root } = boardWithPortrait();
+		root.children['[data-relmap-node="stefan"]'] = el({ style: {} });
+		app._nudgeNode("elena", { x: 21, y: 30 });
+		app._nudgeNode("stefan", { x: 71, y: 30 });
+		await app._writeNudge();
+		expect(entry.updates).toHaveLength(2);
+	});
+
+	// A selection walked by the arrow keys is one move of several people, and stays one write.
+	it("writes a selection nudged together in one write", async () => {
+		const { app, entry, root } = boardWithPortrait();
+		root.children['[data-relmap-node="stefan"]'] = el({ style: {} });
+		app._nudgeNodes({ elena: { x: 21, y: 30 }, stefan: { x: 71, y: 30 } });
+		await app._writeNudge();
+		expect(entry.updates).toHaveLength(1);
+	});
+
 	// The next key has to step on from where the portrait IS. Reading the document instead would
 	// take every repeat back to the spot the burst started from, so a held key would jitter between
 	// two positions instead of travelling.
@@ -473,14 +509,25 @@ describe("nudging a portrait from the keyboard", () => {
 		expect(app._isBusy()).toBe(false);
 	});
 
-	// A drag is bounded by the pointer; a held arrow key is bounded by nothing. Shown unclamped, the
-	// portrait would walk off the board and snap back the moment the write landed.
-	it("stops at the edge of the board rather than walking off it", () => {
+	// ⚠ THE SHEET IS NOT A WALL ("I run out of space for no reason"). It used to be one, and an
+	// invisible one: a portrait walked off it stopped at an edge nothing on screen showed. It may
+	// stand off the sheet now, as it may be dragged off it.
+	it("walks off the sheet as freely as it is dragged off it", () => {
 		const { app, portrait } = boardWithPortrait();
 		app._nudgeNode("elena", { x: 140, y: -20 });
-		expect(portrait.style.left).toBe("100%");
-		expect(portrait.style.top).toBe("0%");
-		expect(app._pendingNudge.get("elena")).toEqual({ x: 100, y: 0 });
+		expect(portrait.style.left).toBe("140%");
+		expect(portrait.style.top).toBe("-20%");
+		expect(app._pendingNudge.get("elena")).toEqual({ x: 140, y: -20 });
+	});
+
+	// A drag is bounded by the pointer; a held arrow key is bounded by nothing. Shown unclamped at
+	// the far rail, the portrait would walk past it and snap back the moment the write landed.
+	it("stops at the far rail rather than walking past it", () => {
+		const { app, portrait } = boardWithPortrait();
+		app._nudgeNode("elena", { x: RELMAP_REACH_MAX + 40, y: RELMAP_REACH_MIN - 20 });
+		expect(portrait.style.left).toBe(`${RELMAP_REACH_MAX}%`);
+		expect(portrait.style.top).toBe(`${RELMAP_REACH_MIN}%`);
+		expect(app._pendingNudge.get("elena")).toEqual({ x: RELMAP_REACH_MAX, y: RELMAP_REACH_MIN });
 	});
 
 	it("has nothing to write when no key was pressed", () => {
@@ -629,7 +676,7 @@ describe("the lines while a portrait is being dragged", () => {
 		const { app, line } = boardWithLine();
 		app._previewMove("elena", { x: 20, y: 70 });
 		const dragged = line.attrs.d;
-		app._endPreview("elena", { x: 20, y: 30 });
+		app._endPreview({ elena: { x: 20, y: 30 } });
 		expect(line.attrs.d).not.toBe(dragged);
 		expect(startOf(line.attrs.d)[1]).toBeLessThan(40);
 		expect(app._preview).toBeNull();
@@ -641,7 +688,7 @@ describe("the lines while a portrait is being dragged", () => {
 		const { app, line } = boardWithLine();
 		app._previewMove("elena", { x: 20, y: 70 });
 		const dragged = line.attrs.d;
-		app._endPreview("elena", null);
+		app._endPreview(null);
 		expect(line.attrs.d).toBe(dragged);
 		expect(app._preview).toBeNull();
 	});
@@ -1249,8 +1296,17 @@ describe("what a portrait says when it is rested on", () => {
 	// A bare name is not a sentence, and run straight into the instruction it reads as one broken
 	// one. The two tooltips that already end in a full stop must not collect a second.
 	it("puts a full stop between the two, and only where there is not one already", () => {
-		expect(tooltips().nobody).toBe("The Miller. Right-click to see the delete button.");
+		expect(tooltips().nobody).toBe(
+			"The Miller. Right-click to see the delete button. Shift-click to select several people and move them together.",
+		);
 		expect(tooltips().elena).not.toContain("..");
+	});
+
+	// SELECTING SEVERAL IS THE SAME KIND OF GESTURE, a modifier on a click with nothing on the board
+	// to suggest it, so it is named in the same breath -- and only to a reader who can move anybody.
+	it("names the Shift-click beside it, and only to a reader who can edit", () => {
+		expect(tooltips().elena).toContain("Shift-click");
+		expect(tooltips({ isOwner: false }).elena).not.toContain("Shift-click");
 	});
 
 	// AND NOT ON A BOARD THIS READER MAY ONLY LOOK AT, where the press does nothing: the trash can
@@ -2237,6 +2293,77 @@ describe("putting several people on the board at once", () => {
 	});
 });
 
+describe("making a new person from the board", () => {
+	stubNotifications();
+	beforeEach(() => { globalThis.game.i18n = TABLE; });
+	const asGM = () => { globalThis.game.user = { id: "gm1", isGM: true }; };
+
+	const NEWCOMER = { uuid: "Actor.newt", name: "Newt", img: "newt.webp" };
+
+	it("seats the person the dialog made", async () => {
+		asGM();
+		const { app, entry } = windowFor();
+		const create = vi.fn(async () => NEWCOMER);
+		await app._createPerson(create);
+		expect(create).toHaveBeenCalled();
+		expect(entry.updates).toHaveLength(1);
+		const values = Object.entries(entry.updates[0]);
+		expect(values.some(([key, value]) => key.endsWith(".uuid") && value === "Actor.newt")).toBe(true);
+	});
+
+	it("writes nothing when the dialog is backed out of", async () => {
+		asGM();
+		const { app, entry } = windowFor();
+		await app._createPerson(async () => null);
+		expect(entry.updates).toEqual([]);
+	});
+
+	// Players make the people on their map too: the gate is Foundry's ACTOR_CREATE, which the
+	// GM may grant them, and not isGM.
+	describe("the gate is ACTOR_CREATE, not isGM", () => {
+		let was;
+		beforeEach(() => { was = globalThis.Actor; });
+		afterEach(() => { globalThis.Actor = was; });
+		const asPlayer = () => { globalThis.game.user = { id: "u1", isGM: false }; };
+
+		it("lets a player who may create actors make and seat one", async () => {
+			asPlayer();
+			globalThis.Actor = { canUserCreate: () => true };
+			const { app, entry } = windowFor();
+			await app._createPerson(async () => NEWCOMER);
+			expect(entry.updates).toHaveLength(1);
+			app._createPerson = vi.fn();
+			await app._onToolClick({ currentTarget: { dataset: { relmapAction: "create" } } });
+			expect(app._createPerson).toHaveBeenCalled();
+		});
+
+		// A world whose GM revoked the grant: the button is not rendered, and the tool refuses anyway.
+		it("does nothing for somebody who may not create actors, from the method or the button", async () => {
+			asPlayer();
+			globalThis.Actor = { canUserCreate: () => false };
+			const { app, entry } = windowFor();
+			const create = vi.fn(async () => NEWCOMER);
+			await app._createPerson(create);
+			app._createPerson = vi.fn();
+			await app._onToolClick({ currentTarget: { dataset: { relmapAction: "create" } } });
+			expect(create).not.toHaveBeenCalled();
+			expect(app._createPerson).not.toHaveBeenCalled();
+			expect(entry.updates).toEqual([]);
+		});
+	});
+
+	// The actor exists whatever the board did while the dialog was up, so the notice must not
+	// say "nothing was changed": it names who was made and how to put them on.
+	it("says the person was made but not seated when the board changed under the dialog", async () => {
+		asGM();
+		const entry = TWO_BOARDS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		await app._createPerson(async () => { app._pageId = "p2"; return NEWCOMER; });
+		expect(entry.pages.contents.every(page => page.updates.length === 0)).toBe(true);
+		expect(globalThis.ui.notifications.info).toHaveBeenCalledWith(expect.stringContaining("Newt"));
+	});
+});
+
 describe("rubbing a line out from the bar", () => {
 	beforeEach(() => {
 		globalThis.game.i18n = TABLE;
@@ -2336,6 +2463,19 @@ describe("the colours of the table's own already on a board", () => {
 	it("offers each one once, most-used first, and none of the eight", () => {
 		const { app } = windowFor(MANY_INKS);
 		expect(app._inksInUse()).toEqual(["#7a2f8a", "#1d5f4a"]);
+	});
+
+	// A group's outline drawn in the table's purple is that purple on this map as much as a line is.
+	it("counts the colours of the groups too", () => {
+		const { app } = windowFor({
+			...MANY_INKS,
+			groups: {
+				g1: { name: "Hunters", shape: "box", dash: "solid", ink: "#1d5f4a", members: { elena: true } },
+				g2: { name: "Elders", shape: "oval", dash: "solid", ink: "#1d5f4a", members: { stefan: true } },
+				g3: { name: "Kin", shape: "box", dash: "solid", ink: "#3a4fa0", members: { elena: true } },
+			},
+		});
+		expect(app._inksInUse()).toEqual(["#1d5f4a", "#7a2f8a", "#3a4fa0"]);
 	});
 
 	it("offers nothing at all for a board drawn only in the eight", () => {
@@ -3226,18 +3366,12 @@ function livingMap(boards) {
 				for (const [key, value] of Object.entries(patch)) {
 					const parts = key.slice(`${FLAG}.`.length).split(".");
 					const leaf = parts[parts.length - 1];
-					if (leaf.startsWith("-=")) {
-						delete page.flag[parts[0]][leaf.slice(2)];
-						continue;
-					}
-					if (parts.length === 1) {
-						page.flag[parts[0]] = value;
-						continue;
-					}
-					const [kind, id, field] = parts;
-					page.flag[kind] ??= {};
-					page.flag[kind][id] ??= {};
-					page.flag[kind][id][field] = value;
+					// Walked to ANY depth, as the document's own merge does: a person in a group is a
+					// leaf one level below a field (`groups.<id>.members.<person>`).
+					let at = page.flag;
+					for (const part of parts.slice(0, -1)) at = (at[part] ??= {});
+					if (leaf.startsWith("-=")) delete at[leaf.slice(2)];
+					else at[leaf] = value;
 				}
 				return Promise.resolve(page);
 			},
@@ -4759,5 +4893,364 @@ describe("a board that goes out from under a render", () => {
 		Object.defineProperty(page, "isOwner", { get: () => false, configurable: true });
 		on.get("updateJournalEntryPage")(page, { ownership: { default: 2 } });
 		expect(app.render).toHaveBeenCalled();
+	});
+});
+
+// ── SEVERAL PEOPLE AT ONCE ("select multiple people at once to move them") ───────────────────────
+//
+// The window's half of it: the list, the marks, the one write and the one preview. The gestures that
+// get here are tests/utils/relmap-selection.test.js's.
+describe("several people at once", () => {
+	beforeEach(() => {
+		forgetAllHistory();
+		globalThis.game.i18n = TABLE;
+	});
+	afterEach(() => forgetAllHistory());
+
+	const THREE = {
+		version: 1,
+		nodes: {
+			...TWO_PEOPLE.nodes,
+			marta: { uuid: null, name: "Marta", img: "", x: 50, y: 80, note: "" },
+		},
+		edges: TWO_PEOPLE.edges,
+	};
+
+	/** A root whose `querySelectorAll` answers with portraits, as the trash can's suite builds one. */
+	const boardOf = (app, ids = ["elena", "stefan", "marta"]) => {
+		const nodes = ids.map(id => el({ dataset: { relmapNode: id }, style: {} }));
+		app._root.all["[data-relmap-node]"] = nodes;
+		for (const [at, id] of ids.entries()) app._root.children[`[data-relmap-node="${id}"]`] = nodes[at];
+		return Object.fromEntries(nodes.map((node, at) => [ids[at], node]));
+	};
+	const marked = node => node.classList.contains("is-selected");
+
+	it("marks the people chosen and nobody else", () => {
+		const { app } = windowFor(THREE);
+		const nodes = boardOf(app);
+		app._select(["elena", "marta"]);
+		expect(marked(nodes.elena)).toBe(true);
+		expect(marked(nodes.marta)).toBe(true);
+		expect(marked(nodes.stefan)).toBe(false);
+		expect(app._selected).toEqual(["elena", "marta"]);
+	});
+
+	it("takes the marks off again when nobody is chosen", () => {
+		const { app } = windowFor(THREE);
+		const nodes = boardOf(app);
+		app._select(["elena"]);
+		app._select([]);
+		expect(marked(nodes.elena)).toBe(false);
+	});
+
+	// ⚠ A GHOST IN THE LIST WOULD BE CARRIED ALONG WITH EVERY GROUP DRAG. The repaint that follows
+	// somebody else taking a person off is where this is put right.
+	it("drops somebody no longer on the board from the list", () => {
+		const { app } = windowFor(THREE);
+		boardOf(app, ["elena", "stefan"]);
+		app._select(["elena", "marta"]);
+		expect(app._selected).toEqual(["elena"]);
+	});
+
+	it("says how many are chosen once it is final, and nothing on the frames of a box", () => {
+		const { app, live } = windowFor(THREE);
+		boardOf(app);
+		app._select(["elena", "marta"], { final: false });
+		expect(live.textContent ?? "").toBe("");
+		app._select(["elena", "marta"]);
+		expect(live.textContent).toBe(TABLE.format("RELMAP.selection.count", { count: 2 }));
+		app._select([]);
+		expect(live.textContent).toBe(TABLE.localize("RELMAP.selection.none"));
+	});
+
+	it("finds who is standing inside a box, off the paint", () => {
+		const { app } = windowFor(THREE);
+		app._drawn = { graph: { nodes: THREE.nodes } };
+		expect(app._nodesIn({ left: 0, right: 60, top: 0, bottom: 90 }).sort()).toEqual(["elena", "marta"]);
+		expect(app._nodesIn({ left: 60, right: 100, top: 0, bottom: 50 })).toEqual(["stefan"]);
+	});
+
+	// A face walked by the arrow keys is where the keys put it, which is where the reader sees it.
+	it("finds a face the arrow keys have moved where they moved it", () => {
+		const { app } = windowFor(THREE);
+		app._drawn = { graph: { nodes: THREE.nodes } };
+		app._pendingNudge.set("stefan", { x: 10, y: 10 });
+		expect(app._nodesIn({ left: 0, right: 15, top: 0, bottom: 15 })).toEqual(["stefan"]);
+	});
+
+	// ONE WRITE IS ONE STEP OF THE UNDO. Taken back a person at a time, a group moved together would
+	// sit in pieces half way.
+	it("moves a whole group in one write", async () => {
+		const { app, entry } = windowFor(THREE);
+		boardOf(app);
+		expect(await app._moveNodes({ elena: { x: 25, y: 35 }, stefan: { x: 75, y: 35 } })).toBe(true);
+		expect(entry.updates).toHaveLength(1);
+		const wrote = JSON.stringify(entry.updates[0]);
+		expect(wrote).toContain("25");
+		expect(wrote).toContain("75");
+	});
+
+	// On a living board, so the undo actually puts them back rather than merely being recorded.
+	it("takes a whole group back in one step, under a name that counts them", async () => {
+		const { entry, pages: [page] } = ONE_LIVING_BOARD();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		await app._moveNodes({ elena: { x: 25, y: 35 }, stefan: { x: 75, y: 45 } });
+		expect(app._history.depth).toBe(1);
+		expect(app._history.peekUndo().label).toBe(TABLE.format("RELMAP.history.movedMany", { count: 2 }));
+		await app._stepHistory("back");
+		expect(readGraph(page).nodes.elena).toMatchObject({ x: 20, y: 30 });
+		expect(readGraph(page).nodes.stefan).toMatchObject({ x: 70, y: 30 });
+	});
+
+	// ⚠ PAINTED BEFORE THE WRITE, or every face flashes back to where it was picked up for a round trip.
+	it("paints everybody where they landed before the write goes out", () => {
+		const { app } = windowFor(THREE);
+		const nodes = boardOf(app);
+		app._moveNodes({ elena: { x: 25, y: 35 }, stefan: { x: 140, y: -20 } });
+		expect(nodes.elena.style.left).toBe("25%");
+		expect(nodes.stefan.style.left).toBe("140%");
+		expect(nodes.stefan.style.top).toBe("-20%");
+	});
+
+	// Somebody taken off by another reader while the group was in the air is left off the write, and
+	// the rest still land.
+	it("leaves out somebody no longer on the board, and moves the rest", async () => {
+		const { app, entry } = windowFor(THREE);
+		boardOf(app);
+		expect(await app._moveNodes({ elena: { x: 25, y: 35 }, ghost: { x: 5, y: 5 } })).toBe(true);
+		const wrote = JSON.stringify(entry.updates[0]);
+		expect(wrote).toContain("elena");
+		expect(wrote).not.toContain("ghost");
+	});
+
+	it("writes nothing when nobody in the group is left", async () => {
+		const { app, entry } = windowFor(THREE);
+		expect(await app._moveNodes({ ghost: { x: 5, y: 5 } })).toBe(false);
+		expect(entry.updates).toEqual([]);
+	});
+
+	it("writes a group walked by the arrow keys in one write, and one step", async () => {
+		const { entry } = ONE_LIVING_BOARD();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		boardOf(app, ["elena", "stefan"]);
+		app._commitNudge = vi.fn();
+		app._nudgeNodes({ elena: { x: 21, y: 30 }, stefan: { x: 71, y: 30 } });
+		expect(app._commitNudge).toHaveBeenCalledTimes(1);
+		await app._writeNudge();
+		expect(app._history.depth).toBe(1);
+	});
+
+	// THE SELECTION BELONGS TO THE BOARD. The same person can stand on two boards of one map, under
+	// different ids, and a selection carried across would pick up somebody the reader never chose.
+	it("is let go when the reader leaves the board", () => {
+		const { app } = windowFor(THREE);
+		boardOf(app);
+		app._select(["elena"]);
+		app._leaveBoard();
+		expect(app._selected).toEqual([]);
+	});
+
+	// ⚠ A LINE BETWEEN TWO PEOPLE CARRIED TOGETHER is drawn once with BOTH ends moved. Drawn per
+	// person it would swing from one end and then the other, every frame.
+	it("draws a line between two people carried together with both ends where they are going", () => {
+		const { app, board } = windowFor(THREE);
+		const line = { dataset: { relmapLine: "link1" }, attrs: {}, style: { setProperty() {} } };
+		line.setAttribute = (name, value) => { line.attrs[name] = value; };
+		board.all = { "[data-relmap-line]": [line] };
+		app._previewMoves({ elena: { x: 20, y: 70 }, stefan: { x: 70, y: 70 } });
+		const d = line.attrs.d;
+		const [, fromTop] = d.slice(2, d.indexOf(" Q")).split(",").map(Number);
+		const [, toTop] = d.trim().split(" ").at(-1).split(",").map(Number);
+		// Both were at y=30 and both have gone to y=70: the whole line is down there now.
+		expect(fromTop).toBeGreaterThan(60);
+		expect(toTop).toBeGreaterThan(60);
+	});
+});
+
+// -- Groups: a named box or oval round some people ------------------------------------------------
+//
+// "The hunters", "The elders". The window's half is the tool on the footer (group the selection, or
+// arm a box), the bar's three writes (who is in it, what it is called, rubbing it out), and that each
+// of those is one write and one step of the undo.
+describe("groups on the map", () => {
+	beforeEach(() => {
+		forgetAllHistory();
+		globalThis.game.i18n = TABLE;
+	});
+	afterEach(() => forgetAllHistory());
+
+	const HUNTERS = () => livingMap([{
+		id: "p1", name: "Stillwater",
+		graph: {
+			...TWO_PEOPLE,
+			nodes: { ...TWO_PEOPLE.nodes, marta: { uuid: null, name: "Marta", img: "", x: 50, y: 80, note: "" } },
+			groups: { hunt: { name: "The hunters", shape: "box", ink: "rose", members: { elena: true, stefan: true } } },
+		},
+	}]);
+	const toolButton = root => {
+		const button = el({ attrs: {} });
+		button.setAttribute = (key, value) => { button.attrs[key] = value; };
+		root.children["[data-relmap-action='group']"] = button;
+		return button;
+	};
+
+	it("groups the selected people at once, in a colour no other group is wearing", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._selected = ["stefan", "marta"];
+		await app._groupTool();
+		await new Promise(resolve => setTimeout(resolve, 0));
+		expect(page.updates).toHaveLength(1);
+		const made = Object.entries(readGraph(page).groups).find(([id]) => id !== "hunt");
+		expect(made[1].members).toEqual({ marta: true, stefan: true });
+		expect(made[1].ink).not.toBe("rose");
+		// The selection has become the group; what comes next is naming it, on the next paint.
+		expect(app._selected).toEqual([]);
+		expect(app._pendingGroupPick).toBe(made[0]);
+		expect(app._history.peekUndo().label).toBe(TABLE.localize("RELMAP.history.grouped"));
+	});
+
+	it("arms a box with nobody selected, and stands down when pressed again", () => {
+		const { app, root } = windowFor(TWO_PEOPLE);
+		const button = toolButton(root);
+		app._groupTool();
+		expect(app._drawArmed).toBe(true);
+		expect(button.attrs["aria-pressed"]).toBe("true");
+		app._groupTool();
+		expect(app._drawArmed).toBe(false);
+		expect(button.attrs["aria-pressed"]).toBe("false");
+	});
+
+	it("makes nothing from an empty box or an abandoned one, and stands the tool down", () => {
+		const { app, entry, live } = windowFor(TWO_PEOPLE);
+		app._drawArmed = true;
+		app._drewGroup(null);
+		expect(app._drawArmed).toBe(false);
+		expect(live.textContent ?? "").toBe("");
+		app._drawArmed = true;
+		app._drewGroup([]);
+		expect(app._drawArmed).toBe(false);
+		expect(live.textContent).toBe(TABLE.localize("RELMAP.groups.empty"));
+		expect(entry.updates).toEqual([]);
+	});
+
+	it("puts the selected into a group and takes them out again, a step each", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._selected = ["marta"];
+		await app._regroup("hunt", "add");
+		expect(readGraph(page).groups.hunt.members).toEqual({ elena: true, marta: true, stefan: true });
+		app._selected = ["elena"];
+		await app._regroup("hunt", "take");
+		expect(readGraph(page).groups.hunt.members).toEqual({ marta: true, stefan: true });
+		expect(app._history.depth).toBe(2);
+		await app._stepHistory("back");
+		expect(readGraph(page).groups.hunt.members.elena).toBe(true);
+	});
+
+	// An outline round nobody is nothing, so taking out the last of them rubs the group out instead.
+	it("rubs the group out when everybody left in it is taken out", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._selected = ["elena", "stefan"];
+		await app._regroup("hunt", "take");
+		expect(readGraph(page).groups.hunt).toBeUndefined();
+		expect(page.updates).toHaveLength(1);
+	});
+
+	// ⚠ WHAT THE BAR IS HOLDING BACK IS THROWN AWAY, NOT WRITTEN, when its group goes. Written, a colour
+	// still waiting in the picker landed a moment before the group was rubbed out: two steps of the undo
+	// for one press, and one undo brought the group back without it.
+	it("lets the group's bar go without writing what it held, however the group goes", async () => {
+		for (const go of [
+			app => app._dropGroup("hunt"),
+			app => { app._selected = ["elena", "stefan"]; return app._regroup("hunt", "take"); },
+		]) {
+			forgetAllHistory();
+			const { entry, pages: [page] } = HUNTERS();
+			const { app } = windowFor(null, { entry, pageId: "p1" });
+			app._groupBar = { id: "hunt", discard: vi.fn(), close: vi.fn() };
+			await go(app);
+			expect(app._groupBar.discard).toHaveBeenCalled();
+			expect(app._groupBar.close).not.toHaveBeenCalled();
+			expect(page.updates).toHaveLength(1);
+			expect(app._history.depth).toBe(1);
+		}
+	});
+
+	it("rubs a group out leaving its people, and the undo puts it back whole", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		const before = readGraph(page).groups.hunt;
+		await app._dropGroup("hunt");
+		expect(readGraph(page).groups.hunt).toBeUndefined();
+		expect(Object.keys(readGraph(page).nodes)).toHaveLength(3);
+		await app._stepHistory("back");
+		expect(readGraph(page).groups.hunt).toEqual(before);
+	});
+
+	it("draws every group on the board, with its people, and frames its outline", () => {
+		const { entry } = HUNTERS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		const plan = app._plan();
+		const context = app._boardContext(plan);
+		expect(context.groups).toHaveLength(1);
+		expect(context.groups[0]).toMatchObject({ id: "hunt", inkKey: "rose", name: "The hunters" });
+		expect(context.groups[0].tooltip).toContain("Elena");
+		expect(app._groupAt("hunt").members).toEqual(["elena", "stefan"]);
+		expect(app._groupMembersOf("hunt")).toEqual(["elena", "stefan"]);
+		const outline = app._drawn.groups.get("hunt").outline;
+		expect(app._boundsOf(plan).top).toBeLessThanOrEqual(outline.top);
+	});
+
+	// ⚠ A NAME HALF TYPED IS NOT PAINTED OVER. The repaint waits for it as it waits for a caption.
+	it("holds a repaint back while a group's name is waiting to be written", () => {
+		const { app } = windowFor(TWO_PEOPLE);
+		app._groupBar = { isWriting: () => true };
+		expect(app._isBusy()).toBe(true);
+	});
+
+	// ⚠ ONLY ONE BAR IS EVER UP, HOWEVER IT IS RAISED. A line drawn from a portrait while a group's
+	// bar was still up is taken hold of by the repaint, not by a click, and used to raise the tie
+	// bar beside the group's: two bars over one board, each saying it was the thing being edited.
+	it("puts the group's bar down when a line drawn a moment ago is taken hold of", async () => {
+		const { app } = windowFor(TWO_PEOPLE);
+		const said = [];
+		app._groupBar = {
+			refresh: vi.fn(), selectionChanged: vi.fn(), close: vi.fn(() => said.push("group down")),
+		};
+		app._tieBar = {
+			refresh: vi.fn(), close: vi.fn(), open: vi.fn(() => said.push("line up")),
+		};
+		app._pendingPick = "link1";
+		await app._repaintBoard();
+		expect(said).toEqual(["group down", "line up"]);
+		expect(app._tieBar.open).toHaveBeenCalledWith("link1");
+		expect(app._tieBar.close).not.toHaveBeenCalled();
+	});
+
+	// ⚠ A GROUP JUST DRAWN IS NAMED IN A BAR THE REPAINT RAISES, and Enter on the name has to leave the
+	// reader on the board: with nowhere to go back to, the focus fell to the page and the next Delete
+	// went to the scene. The way back is FOUND when it is needed, since every repaint replaces it.
+	it("gives a group just drawn a way back to its own name", async () => {
+		const { app } = windowFor(TWO_PEOPLE);
+		app._groupBar = { refresh: vi.fn(), selectionChanged: vi.fn(), close: vi.fn(), open: vi.fn() };
+		app._tieBar = { refresh: vi.fn(), close: vi.fn() };
+		app._pendingGroupPick = "hunt";
+		await app._repaintBoard();
+		const [id, opts] = app._groupBar.open.mock.calls[0];
+		expect(id).toBe("hunt");
+		expect(opts.focusName).toBe(true);
+		expect(typeof opts.returnTo).toBe("function");
+	});
+
+	it("puts the tie bar down when a group is taken hold of", () => {
+		const { app } = windowFor(TWO_PEOPLE);
+		app._tieBar = { close: vi.fn() };
+		app._groupBar = { open: vi.fn(), close: vi.fn() };
+		app._pickGroup("hunt", { focusName: true });
+		expect(app._tieBar.close).toHaveBeenCalled();
+		expect(app._groupBar.close).not.toHaveBeenCalled();
+		expect(app._groupBar.open).toHaveBeenCalledWith("hunt", { returnTo: null, focusName: true });
 	});
 });

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0
+
+- The map has no invisible edge any more: a person can be put down on the open paper around it and stays there, and the view takes in everybody who is off it.
+- Several people at once: Shift-click faces (or Shift+Enter), or Shift-drag a box on open paper, to select them. Drag any of them or use the arrow keys to move them all, as one undo step. A plain click on paper or Escape lets go.
+- Named groups: the new Group button draws a box or an oval around some people with a name on it ("The hunters"). With people selected it groups them at once; otherwise drag a box around the people to put in it. The outline follows its members, groups may overlap or sit inside one another, and dragging a group's name moves everyone in it. Deleting a group leaves its people on the map.
+- A group's bar sets its name, its colour (one of the eight, or any colour with the + picker), a box or oval, and a solid or dashed outline, and puts the selected people in or takes them out. Undo and redo cover all of it.
+- In high contrast a group is drawn unfilled with a heavier outline in its colour's own dash pattern.
+- New person: makes an actor with Foundry's Create Actor dialog and puts them on the map. Players see it where their role may create actors, and an actor a player makes this way is visible to everyone.
+
 ## 1.0.1
 
 - Nothing is made for you any more. In a world with no collection yet, the Relationship Maps button asks what the first one is called, and a new collection starts with no maps in it. Add a map with New map or the + beside the map tabs.

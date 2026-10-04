@@ -1136,6 +1136,51 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	stroke-linecap: round;
 }
 
+/* THE SELECTION BOX, drawn with Shift and a drag on open paper (utils/relmap-drag.js). Built like the
+   rubber band above and for the same reasons: in the board's own 0-100 space, so it stays on the
+   paper it was started on through a zoom, with a stroke kept even on screen by `vector-effect`.
+   Dashed, because it is not a thing on the map; a wash of the accent inside so the area reads as an
+   area at a glance, faint enough that the faces under it stay clear. */
+.relmap-marquee {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+	overflow: visible;
+}
+
+.relmap-marquee path {
+	fill: var(--relmap-accent);
+	fill-opacity: 0.08;
+	stroke: var(--relmap-accent);
+	stroke-width: 2;
+	stroke-dasharray: 6 4;
+}
+
+/* SOMEBODY IN THE SELECTION, to be moved with the others (utils/relmap-drag.js; the list is the
+   window's, `_paintSelection`). TWO MARKS, a ring and a heavier name, so colour is never the only
+   thing saying it.
+
+   ⚠ AN OUTLINE, DASHED, AND NOT THE SOLID RING `is-link-target` WEARS, so the two can be told apart
+   by shape as well as by colour: a line dragged onto somebody who is also selected carries both,
+   and a reader on a magnifier has to be able to read either. An outline is paint only, like the
+   other marks on a portrait, so wearing it moves nothing: the drag that follows a selection starts
+   from exactly where the face was. Above its neighbours (2), so the ring is not buried under a
+   face overlapping it; below one being carried (4) or aimed at (3). */
+.relmap-node.is-selected {
+	z-index: 2;
+}
+
+.relmap-node.is-selected .relmap-face {
+	outline: 3px dashed var(--relmap-accent);
+	outline-offset: 3px;
+}
+
+.relmap-node.is-selected .relmap-name {
+	font-weight: 700;
+}
+
 /* ── The arrowheads ───────────────────────────────────────────────────────────
    Fixed-size SVGs, turned by an angle worked out in the board's real proportions. Their own
    viewBox, so the stretch on the line layer above cannot squash them.
@@ -1407,6 +1452,147 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    again at full ink in `.relmap-labels-lit`, over the top. */
 .relmap.is-lit .relmap-labels { opacity: 0.25; }
 
+/* ── Groups: a named box or oval round some people ────────────────────────────
+   "The hunters", "The elders". The outline is worked out from where the members stand on every
+   paint (utils/relmap-geometry.js `groupOutline`), so it is drawn in board pixels in a layer of its
+   own, UNDER everything else on the board: it is a region of paper, and the lines, captions and
+   faces inside it are drawn over it.
+
+   A CLOSED SHAPE WITH THE INK WASHED NEARLY TO NOTHING INSIDE IT, which is what reads as "a region"
+   and never as one more line between people. The stroke is whole unless the group's bar chose it
+   broken (`is-dashed`, `dash` in the stored group). The colour is the group's own ink, from the same
+   eight keys as the lines (`.relmap-ink--*` sets `--relmap-ink`). */
+.relmap-groups {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	/* The layer takes no clicks; only the invisible wide stroke round each outline does. The inside
+	   of a group is paper, so a press there pans and a face inside it is clicked as a face. */
+	pointer-events: none;
+	overflow: visible;
+}
+
+.relmap-group-fill {
+	fill: color-mix(in srgb, var(--relmap-ink, var(--relmap-ink-slate)) 8%, transparent);
+	stroke: none;
+}
+
+.relmap-group-line {
+	fill: none;
+	stroke: var(--relmap-ink, var(--relmap-ink-slate));
+	stroke-width: 2.5px;
+	stroke-linecap: round;
+}
+
+/* THE STROKE SOMEBODY CHOSE BROKEN. Earlier than the held/rested rule below and of the same weight,
+   which is what lets that rule still draw a held outline whole. */
+.relmap-group.is-dashed .relmap-group-line {
+	stroke-dasharray: 10 6;
+}
+
+/* WHAT A CLICK LANDS ON, as with a line: the outline again, invisible and wide. */
+.relmap-group-hit {
+	fill: none;
+	stroke: transparent;
+	stroke-width: 16px;
+	pointer-events: stroke;
+	cursor: pointer;
+}
+
+.relmap.is-readonly .relmap-group-hit { cursor: default; }
+
+/* Held by the group bar, or rested on: heavier, and solid, so on a broken outline the mark is a SHAPE
+   change as well as a weight one. (A whole one has only the weight, and the name chip's ring beside
+   it, which the rule after this paints.) */
+.relmap-group.is-picked .relmap-group-line,
+.relmap-group.is-lit .relmap-group-line {
+	stroke-width: 4px;
+	stroke-dasharray: none;
+}
+
+/* THE NAME, sat on the outline's top edge. Body ink on the page tone with the caption's halo,
+   NEVER coloured type: the colour is on the outline, and a short tab of it beside the words ties
+   the two together. Fixed pixels like a portrait's name, for the reason given there. */
+.relmap-group-name {
+	position: absolute;
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	max-width: 220px;
+	padding: 1px 7px;
+	border-radius: var(--relmap-radius-sm);
+	background: var(--relmap-page);
+	color: var(--relmap-text-body);
+	font-size: 13px;
+	font-weight: 700;
+	font-variant: small-caps;
+	letter-spacing: 0.04em;
+	line-height: 1.4;
+	white-space: nowrap;
+	cursor: pointer;
+	transform: translate(0, -50%);
+	z-index: 1;
+}
+
+/* An oval's name sits on its top, centred. */
+.relmap-group-name.is-centre { transform: translate(-50%, -50%); }
+
+.relmap-group-words {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.relmap-group-name.is-unnamed .relmap-group-words {
+	font-style: italic;
+	font-weight: 400;
+	font-variant: normal;
+	color: var(--relmap-text-quiet);
+}
+
+.relmap-group-tab {
+	flex: none;
+	width: 10px;
+	height: 10px;
+	border-radius: 2px;
+	background: var(--relmap-ink, var(--relmap-ink-slate));
+}
+
+.relmap-group-name.is-picked,
+.relmap-group-name.is-lit {
+	box-shadow: 0 0 0 2px var(--relmap-ink, var(--relmap-ink-slate));
+}
+
+.relmap-group-name:focus-visible {
+	outline: 2px solid var(--relmap-accent);
+	outline-offset: 2px;
+}
+
+.relmap.is-readonly .relmap-group-name { cursor: default; }
+
+/* WHO IS IN THE GROUP BEING RESTED ON: a solid ring in the group's own ink, outside a hairline of
+   paper so it reads against any portrait. Nobody else is dimmed (see the lit web above for why a
+   half-faded face is the wrong answer). A box-shadow and not an outline, so it never fights the
+   selection's dashed outline on a face that is both. */
+.relmap-node.is-in-group .relmap-face {
+	box-shadow: 0 0 0 3px var(--relmap-page), 0 0 0 6px var(--relmap-group-ink, var(--relmap-accent));
+}
+
+/* THE GROUP TOOL IS ARMED: the next drag on open paper draws a box, so the board says so. The
+   button itself wears the pressed look every footer tool shares (`.relmap-tool[aria-pressed]`). */
+.relmap.is-drawing-group .relmap-view { cursor: crosshair; }
+
+/* THE GROUP'S BAR is the tie bar's shape (see `.relmap-tiebar`, which it shares rules
+   with); only the name field is its own, because here the name is typed IN the bar. */
+.relmap-groupbar-name {
+	width: 11em;
+	height: 26px;
+	margin: 0;
+	font-size: 13px;
+}
+
+.relmap-groupbar .relmap-tiebar-btn[hidden] { display: none; }
+
 /* ── The people ───────────────────────────────────────────────────────────────
    A round portrait, a name under it, and a handle on the rim. Positioned by its CENTRE, which
    is what the geometry trims its lines to. */
@@ -1663,6 +1849,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 }
 
 .relmap-board.is-dragging { cursor: grabbing; }
+/* A selection box being drawn is not the board moving; later than the rule above so it wins. */
+.relmap-board.is-boxing { cursor: crosshair; }
 
 /* A CAPTION BEING SLID ALONG ITS OWN LINE. The words are redrawn at the pointer's place on the
    stroke frame by frame (`_slideCaption`), and this is the only thing on screen that says the board
@@ -1745,7 +1933,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
    ON THE PANEL TONE AND NOT THE PAGE, unlike the aside above it. The aside murmurs and belongs to
    the paper; this is chrome laid over the drawing and has to read as a thing in front of it. */
-.relmap-tiebar {
+.relmap-tiebar,
+.relmap-groupbar {
 	position: absolute;
 	/* Written by `place()`. Here so the first paint before it runs is off-screen rather than in the
 	   top-left corner of the board. */
@@ -1765,7 +1954,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 }
 
 /* `display: flex` above beats the attribute on its own, so the hidden state has to be said. */
-.relmap-tiebar[hidden] { display: none; }
+.relmap-tiebar[hidden],
+.relmap-groupbar[hidden] { display: none; }
 
 /* THE WRITING FIELD, CLIPPED OFF THE BAR.
 
@@ -3168,6 +3358,32 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    rule, so it wins wherever it sits. */
 .relmap-window.relmap-high-contrast .relmap-line {
 	stroke-dasharray: var(--relmap-dash, none);
+}
+
+/* A GROUP'S OUTLINE, the same way: no wash (a tint is a colour difference, and this skin does not
+   lean on those), a heavier stroke, and the ink's own dash pattern, so two groups that differ only
+   in colour still differ. */
+.relmap-window.relmap-high-contrast .relmap-group-fill { fill: none; }
+.relmap-window.relmap-high-contrast .relmap-group-line {
+	stroke-width: 3.5px;
+	stroke-dasharray: var(--relmap-dash, none);
+}
+
+/* AND AN OUTLINE SOMEBODY BROKE ON PURPOSE KEEPS ITS DASHES, the line's rule above and for its
+   reason: the ink's pattern is a colour said again, this is a mark a reader made by hand. Later and
+   one class heavier, which is what makes it win. */
+.relmap-window.relmap-high-contrast .relmap-group.is-dashed .relmap-group-line {
+	stroke-dasharray: 10 6;
+}
+
+/* ⚠ AND THE GROUP BEING HELD OR RESTED ON STILL SAYS SO. The ordinary rule (heavier, and whole) is
+   no heavier than the two above, and they come later, so under this skin -- the one that most needs
+   the mark -- a picked outline did not change at all. Said again here, after both and heavier than
+   this skin's own 3.5px. */
+.relmap-window.relmap-high-contrast .relmap-group.is-picked .relmap-group-line,
+.relmap-window.relmap-high-contrast .relmap-group.is-lit .relmap-group-line {
+	stroke-width: 5px;
+	stroke-dasharray: none;
 }
 
 /* A COLOUR NOBODY NAMED IS MOVED WITH THE REST, as far as it can be: taken a fixed step towards more
