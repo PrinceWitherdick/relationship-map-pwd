@@ -26,7 +26,7 @@
 
 import { RelmapDialog } from "../utils/relmap-dialog.js";
 import { applyGuideRail } from "../utils/guide-rail.js";
-import { windowClasses } from "../utils/window-theme.js";
+import { themedDialogClasses } from "../utils/window-theme.js";
 import { format, localize } from "../utils/i18n.js";
 
 // A plain literal, so a search for the path finds every place it is used.
@@ -73,7 +73,7 @@ export class PersonPickerDialog extends RelmapDialog {
 	static get defaultOptions() {
 		return foundry.utils.mergeObject(super.defaultOptions, {
 			id: "relmap-person-picker",
-			classes: windowClasses("relmap-person-picker-app"),
+			classes: themedDialogClasses("relmap-person-picker-app"),
 			template: TEMPLATE,
 			width: 520,
 			// A HEIGHT, DELIBERATELY, and not `auto`. This window is a list of everybody, so
@@ -128,6 +128,25 @@ export class PersonPickerDialog extends RelmapDialog {
 				})),
 			})),
 		};
+	}
+
+	/**
+	 * The frame, with the confirm button's glyph in the title bar, where a DialogV2 of ours carries
+	 * its `window.icon`: the picker is one of this module's dialogs and should not be the one without.
+	 *
+	 * ⚠ BESIDE THE TITLE, NOT INSIDE IT. AppV1 rewrites `.window-title`'s text when the title changes,
+	 * which would take an icon living inside it along with the old words.
+	 */
+	async _renderOuter() {
+		const html = await super._renderOuter();
+		const title = html?.[0]?.querySelector?.(".window-title");
+		if (title) {
+			const icon = document.createElement("i");
+			icon.className = `window-icon fas fa-fw ${this._icon}`;
+			icon.setAttribute("aria-hidden", "true");
+			title.before(icon);
+		}
+		return html;
 	}
 
 	activateListeners(html) {

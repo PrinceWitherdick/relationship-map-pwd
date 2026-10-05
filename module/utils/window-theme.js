@@ -23,6 +23,29 @@ export const WINDOW_CLASS = "relmap-window";
 /** The class that turns the high-contrast board on. */
 export const HIGH_CONTRAST_CLASS = "relmap-high-contrast";
 
+/**
+ * The class on every DIALOG of ours, V1 or V2, and not on the map window: the skinned frame (title
+ * bar, ground, footer) hangs off it. Core's own Create Actor dialog wears it too, when the map asks
+ * for one (utils/create-person.js).
+ */
+export const DIALOG_CLASS = "relmap-dialog";
+
+/**
+ * The class on a dialog's confirm button: the slate fill (styles/relationship-map.css `.relmap-cta`),
+ * so the press that answers the question is the one that looks like it. Every dialog of ours takes it
+ * from here; core's Create Actor dialog is given the same fill by the stylesheet instead, keyed on
+ * `.relmap-create-person-dialog` (utils/create-person.js says why).
+ */
+export const CTA_CLASS = "relmap-cta";
+
+/**
+ * A DialogV2's `window` option. The icon only when there is one: core draws `"icon" in window` as an
+ * icon, an empty one included.
+ */
+export function dialogWindow(title, icon = "") {
+	return icon ? { title, icon } : { title };
+}
+
 /** "dark" or "light": the scheme core would give an application window right now. */
 export function currentScheme() {
 	let chosen = "";
@@ -57,9 +80,12 @@ export function windowClasses(...extra) {
 	return [WINDOW_CLASS, ...extra, ...themeClasses()];
 }
 
-/** The same list for a DialogV2 of ours, which core does not re-theme either once it is open. */
+/**
+ * The same list for a dialog of ours, which core does not re-theme either once it is open, with the
+ * dialog skin's class in front.
+ */
 export function themedDialogClasses(...extra) {
-	return windowClasses(...extra);
+	return windowClasses(DIALOG_CLASS, ...extra);
 }
 
 /** Put the current theme onto one window root. Returns true when anything changed. */

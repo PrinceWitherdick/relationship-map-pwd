@@ -168,8 +168,10 @@
       "both": "Both ways, marked at each end"
     },
     "maps": {
-      "newTitle": "What is this collection called?",
-      "newGo": "Make the collection",
+      "newTitle": "New relationship map",
+      "newGo": "Make it",
+      "newLead": "A collection holds one or more maps. Name the collection and the first map in it; you can add more maps to it later.",
+      "nameLabel": "Collection",
       "namePlaceholder": "The campaign, the city, the court",
       "cannotCreate": "Ask your GM to make a collection of relationship maps. Making one needs the Trusted Player role; once it exists, you can draw on its maps.",
       "rename": "Rename collection",
@@ -187,13 +189,14 @@
       "chooseTitle": "Collections",
       "chooseGo": "Open",
       "new": "Make a new collection",
-      "newHint": "Start another collection. It opens with no maps in it, ready for you to add the first.",
+      "newHint": "Start another collection, and name the first map in it.",
       "boardCount": "{count} map(s)"
     },
     "pages": {
       "label": "Maps in this collection",
       "untitled": "New map",
       "placeholder": "The court, the docks, who owes whom",
+      "firstLabel": "First map",
       "new": "New map",
       "newHint": "Start another map in this collection, with nobody on it yet. Each map has its own people, its own lines and its own layout, and starts out hidden from the players until the GM shows it.",
       "newTitle": "Name the new map",
@@ -217,6 +220,7 @@
       "moved": "{name} is now map {index} of {count}.",
       "orderHint": "Drag a map along the strip to put it in a different order, or hold Ctrl and press the left or right arrow key. The order is the whole table's: everyone sees these maps in the order you leave them in.",
       "failed": "That map could not be made. You may no longer have permission to change this collection.",
+      "firstFailed": "The collection was made, but its first map could not be. Add one with New map.",
       "moveFailed": "That map could not be moved. You may no longer have permission to change this collection.",
       "noneLead": "This collection has no maps yet.",
       "noneHint": "Add the first one with New map, or with the + beside the tabs.",

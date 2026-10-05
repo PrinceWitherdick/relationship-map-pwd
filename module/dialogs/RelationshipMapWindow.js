@@ -16,7 +16,7 @@
 //    Repainting under a drag replaces the element the pointer is holding.
 
 import { RelmapDialog } from "../utils/relmap-dialog.js";
-import { currentScheme, themedDialogClasses, windowClasses } from "../utils/window-theme.js";
+import { CTA_CLASS, currentScheme, dialogWindow, themedDialogClasses, windowClasses } from "../utils/window-theme.js";
 import { clipText, escHtml } from "../utils/strings.js";
 import { openOrFocus } from "../utils/open-or-focus.js";
 import { openingSize } from "../utils/opening-size.js";
@@ -1193,10 +1193,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 
 		// THE GROUPS, outermost first. Their outlines are worked out from where the members stand and
 		// kept on `_drawn` beside the lines, for the group bar to sit by and the drag preview to move.
-		const outlines = groupShapes(graph, board);
+		// At the reader's word weight, which their names are set at: see `groupNestPx`.
+		// Each carries the words its name shows and its frame with that name, for `_boundsOf`.
+		const unnamed = localize("RELMAP.groups.unnamed");
+		const outlines = groupShapes(graph, board, { wordScale: scales.word, unnamed });
 		this._drawn.groups = new Map(outlines.map(shape => [shape.id, shape]));
-		const groups = outlines.map(({ id, group, members, outline }) => {
-			const named = group.name || localize("RELMAP.groups.unnamed");
+		const groups = outlines.map(({ id, group, members, outline, words: named }) => {
 			const who = members.map(member => this._nameOf(graph, member)).join(", ");
 			const said = format("RELMAP.groups.says", { name: named, who });
 			return {
@@ -1211,7 +1213,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 
 		return {
 			nodes, edges, labels, heads, groups,
-			unnamedGroup: localize("RELMAP.groups.unnamed"),
+			unnamedGroup: unnamed,
 			// The caption layer's own coordinate space, which is the board's pixels at 1:1. Sent
 			// out rather than written into the stylesheet because the sheet GROWS with the number
 			// of people on it (`boardMetrics`), so there is no constant to write.
@@ -2691,6 +2693,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			localize("RELMAP.pages.newTitle"),
 			localize("RELMAP.pages.new"),
 			"",
+			"fa-solid fa-plus",
 		);
 		if (name === null) return;
 		const page = await createMapPage(this.entry, name);
@@ -2800,6 +2803,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			localize("RELMAP.maps.renameTitle"),
 			localize("RELMAP.maps.renameGo"),
 			entry.name,
+			"fa-solid fa-pen",
 		);
 		if (name === null) return;
 		if (await renameRelationshipMap(entry, name)) {
@@ -2831,18 +2835,25 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * head, and the affirmative one is first, which is this system's order everywhere.
 	 *
 	 * `danger` wears the destructive skin (styles/relationship-map.css), which is for the two that destroy
-	 * work nobody can get back; removing a person is undoable and so is not red.
+	 * work nobody can get back; removing a person is undoable and so is not red, and wears the slate
+	 * confirm (`.relmap-cta`) every other question of ours does.
 	 *
-	 * @param {{title: string, body: string, confirm: string, cancel: string, danger?: boolean}} q
+	 * ⚠ A WIDTH OF ITS OWN, the text prompts' 420 (dialogs/content-picker.js). Core's `confirm` gives
+	 * itself 400 but `wait` gives nothing, and a window with no width grows to the body's sentence on
+	 * one line: the collection's delete ran most of the way across the screen.
+	 *
+	 * @param {{title: string, body: string, confirm: string, cancel: string, icon?: string,
+	 *          danger?: boolean}} q
 	 * @returns {Promise<boolean>} Whether the reader pressed the affirmative button.
 	 */
-	async _confirm({ title, body, confirm, cancel, danger = false }) {
+	async _confirm({ title, body, confirm, cancel, icon, danger = false }) {
 		const go = await foundry.applications.api.DialogV2.wait({
-			classes: themedDialogClasses(),
-			window: { title },
+			classes: themedDialogClasses("relmap-confirm-dialog"),
+			window: dialogWindow(title, icon),
+			position: { width: 420 },
 			content: `<p>${escHtml(body)}</p>`,
 			buttons: [
-				{ action: "go", label: confirm, default: true, ...(danger ? { class: "relmap-danger" } : {}) },
+				{ action: "go", label: confirm, default: true, class: danger ? "relmap-danger" : CTA_CLASS },
 				{ action: "keep", label: cancel },
 			],
 			rejectClose: false,
@@ -2870,6 +2881,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 				: format("RELMAP.maps.deleteBodyEmpty", { name: entry.name }),
 			confirm: localize("RELMAP.maps.deleteConfirm"),
 			cancel: localize("RELMAP.maps.deleteCancel"),
+			icon: "fa-solid fa-trash",
 			danger: true,
 		});
 		if (!ok) return;
@@ -2892,6 +2904,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			localize("RELMAP.pages.renameTitle"),
 			localize("RELMAP.pages.renameGo"),
 			page.name,
+			"fa-solid fa-pen",
 		);
 		if (name === null) return;
 		if (await renameMapPage(page, name)) {
@@ -2926,6 +2939,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			),
 			confirm: localize("RELMAP.pages.deleteConfirm"),
 			cancel: localize("RELMAP.pages.deleteCancel"),
+			icon: "fa-solid fa-trash",
 			danger: true,
 		});
 		if (!ok) return;
@@ -2956,9 +2970,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * anything" — stays tellable from "never mind". `mapPageName` is what turns the empty one into
 	 * a name a document will accept.
 	 */
-	async _askPageName(title, confirm, current) {
+	async _askPageName(title, confirm, current, icon) {
 		return promptForText({
 			title,
+			icon,
 			buttonLabel: confirm,
 			value: current ?? "",
 			placeholder: localize("RELMAP.pages.placeholder"),
@@ -3380,7 +3395,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// AND EVERY GROUP ANY OF THEM IS IN, whose outline follows its people. Worked out by the same
 		// builder the paint uses, so the drop lands exactly where the reader watched it settle.
 		if (preview.groupIds.size) {
-			const shapes = groupShapes(preview.graph, preview.board, { within: preview.groupsWithin, only: preview.groupIds });
+			const shapes = groupShapes(preview.graph, preview.board, {
+				within: preview.groupsWithin, only: preview.groupIds, wordScale: preview.scales?.word,
+				unnamed: preview.unnamed,
+			});
 			for (const { id, outline } of shapes) {
 				if (!preview.groupIds.has(id)) continue;
 				const parts = preview.groupParts.get(id);
@@ -3456,6 +3474,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 				.map(([id]) => id)),
 			groupsWithin: groupsInside(graph.groups ?? {}),
 			groupParts: indexGroupParts(board),
+			// What an unnamed group's chip says, which a group inside another is stood clear of.
+			unnamed: localize("RELMAP.groups.unnamed"),
 		};
 		return this._preview;
 	}
@@ -4294,6 +4314,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 				: format("RELMAP.removeBody", { name: node.name }),
 			confirm: format("RELMAP.removeConfirm", { name: node.name }),
 			cancel: localize("RELMAP.removeCancel"),
+			icon: "fa-solid fa-user-minus",
 		});
 		if (!ok || !this._stillOn(doc)) return;
 		// READ AGAIN NOW THE ANSWER IS IN, for the reason `_addPerson` gives: a line drawn to them while the
@@ -4714,15 +4735,18 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * for utils/zoom-pan-surface.js. See `boardBounds`.
 	 */
 	_boundsOf(plan) {
-		// AND EVERY GROUP'S OUTLINE, which stands further out than the faces it is drawn round: a
-		// group at the edge of what the reader can pan to would otherwise be cut off at its rim.
+		// AND EVERY GROUP'S OUTLINE WITH ITS NAME, which stand further out than the faces they are
+		// drawn round: a group at the edge of what the reader can pan to would otherwise be cut off at
+		// its rim, and its name, centred on that rim, cut in half.
 		// Off the paint when it was drawn from this very plan, which is every caller but the tests.
 		const drawn = this._drawn?.graph === plan?.graph ? this._drawn?.groups : null;
+		const wordScale = plan?.scales?.word;
 		const shapes = drawn
 			? [...drawn.values()]
-			: plan?.graph?.groups && plan?.board ? groupShapes(plan.graph, plan.board) : [];
-		const outlines = shapes.map(({ outline }) => outline);
-		return boardBounds(Object.values(plan?.graph?.nodes ?? {}), plan?.board, outlines);
+			: plan?.graph?.groups && plan?.board
+				? groupShapes(plan.graph, plan.board, { wordScale, unnamed: localize("RELMAP.groups.unnamed") })
+				: [];
+		return boardBounds(Object.values(plan?.graph?.nodes ?? {}), plan?.board, shapes.map(shape => shape.frame));
 	}
 
 	/**

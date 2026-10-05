@@ -8,6 +8,11 @@
 - A group's bar sets its name, its colour (one of the eight, or any colour with the + picker), a box or oval, and a solid or dashed outline, and puts the selected people in or takes them out. Undo and redo cover all of it.
 - In high contrast a group is drawn unfilled with a heavier outline in its colour's own dash pattern.
 - New person: makes an actor with Foundry's Create Actor dialog and puts them on the map. Players see it where their role may create actors, and an actor a player makes this way is visible to everyone.
+- Making a collection now names its first map too, in the same window, and the map window opens on that map. Before, a new collection arrived empty and you had to press New map and name a map again.
+- A group's name grows and shrinks with the map's text-size setting, and its outline makes room for it: at any size the name stays clear of the faces under it and of the name of a group drawn inside it.
+- A change made straight after an undo is always an undo step of its own, rather than folding into the step below it.
+- The module's dialogs have a look of their own instead of Foundry's default: a slate title bar with an icon, the map's own paper colours in light and dark, clearer text boxes, and the confirm button in slate at the right of a footer. This covers Add someone, New person, naming and renaming maps and collections, choosing a collection, and every "are you sure".
+- An "are you sure" opens as a narrow window with its question wrapped over a few lines, rather than one line stretched across most of the screen.
 
 ## 1.0.1
 

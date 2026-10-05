@@ -5,7 +5,7 @@ import {
 	groupMembersPatch, groupPatch, normalizeGraph, relmapPath,
 } from "../../module/relmap/relmap-store.js";
 import {
-	RELMAP_GROUP_NEST_PX, RELMAP_GROUP_PAD_PX, boardBounds, groupOutline, groupShapes, groupsInside,
+	RELMAP_CAPTION_PX, RELMAP_GROUP_NEST_SIDE_PX, RELMAP_GROUP_PAD_PX, boardBounds, groupFrame, groupNestPx, groupOutline, groupShapes, groupsInside,
 } from "../../module/utils/relmap-geometry.js";
 
 // NAMED GROUPS ON THE RELATIONSHIP MAP: "The hunters", "The elders", an outline round some people.
@@ -307,8 +307,82 @@ describe("the outline round a group", () => {
 		const members = [at(20, 30), at(40, 50)];
 		const flat = groupOutline(members, { board });
 		const outer = groupOutline(members, { board, contain: [flat] });
-		expect(flat.left - outer.left).toBeCloseTo(RELMAP_GROUP_NEST_PX);
+		expect(flat.left - outer.left).toBeCloseTo(RELMAP_GROUP_NEST_SIDE_PX);
+		expect(outer.right - flat.right).toBeCloseTo(RELMAP_GROUP_NEST_SIDE_PX);
+		expect(outer.bottom - flat.bottom).toBeCloseTo(RELMAP_GROUP_NEST_SIDE_PX);
+		expect(flat.top - outer.top).toBeCloseTo(groupNestPx());
 		expect(RELMAP_GROUP_PAD_PX).toBeGreaterThan(0);
+	});
+
+	// ⚠ ONLY THE TOP LINE CARRIES NAMES, so only the step above grows with them. A chip-sized step on
+	// every side ballooned a group with another inside it by some 160px at the heaviest words.
+	it("grows only the step above a nested group as the words are turned up", () => {
+		const members = [at(20, 30), at(40, 50)];
+		for (const wordScale of [1, 3]) {
+			const flat = groupOutline(members, { board, wordScale });
+			const outer = groupOutline(members, { board, wordScale, contain: [flat] });
+			expect(flat.left - outer.left).toBeCloseTo(RELMAP_GROUP_NEST_SIDE_PX);
+			expect(outer.right - flat.right).toBeCloseTo(RELMAP_GROUP_NEST_SIDE_PX);
+			expect(outer.bottom - flat.bottom).toBeCloseTo(RELMAP_GROUP_NEST_SIDE_PX);
+			expect(flat.top - outer.top).toBeCloseTo(groupNestPx(wordScale));
+		}
+	});
+
+	// ⚠ THE NAMES ARE SET AT THE READER'S TEXT WEIGHT, and every name sits ON its line: the outer one
+	// hangs half its chip below, the inner one stands half its chip above. A fixed step measured for
+	// one size of chip let a bigger pair lie across each other.
+	it("stands further clear as the reader turns the words up, by the bigger name chip", () => {
+		expect(groupNestPx(2) - groupNestPx(1)).toBeCloseTo(RELMAP_CAPTION_PX * 1.56);
+		expect(groupNestPx(0.5)).toBeLessThan(groupNestPx(1));
+		// No weight, or a nonsense one, is the ordinary size.
+		expect(groupNestPx(undefined)).toBe(groupNestPx(1));
+		expect(groupNestPx(0)).toBe(groupNestPx(1));
+		const got = graph({
+			groups: {
+				council: { members: { ordga: true, marrec: true, sela: true } },
+				elders: { members: { ordga: true, marrec: true } },
+			},
+		});
+		const gap = wordScale => {
+			const shapes = groupShapes(got, board, { wordScale });
+			const of = id => shapes.find(shape => shape.id === id).outline;
+			return of("elders").top - of("council").top;
+		};
+		expect(gap(2)).toBeCloseTo(gap(1) + RELMAP_CAPTION_PX * 1.56);
+		// The outer name's lower half and the inner name's upper half never meet, at any weight.
+		for (const wordScale of [1, 2, 3]) {
+			const halfChip = (RELMAP_CAPTION_PX * wordScale * 1.56) / 2;
+			expect(gap(wordScale) - 2 * halfChip).toBeGreaterThan(0);
+		}
+	});
+
+	// ⚠ A GROUP'S OWN NAME HANGS BELOW ITS TOP LINE, so the room above the top face grows with it.
+	it("keeps its own name clear of the top member's face as the words are turned up", () => {
+		const members = [at(20, 30), at(40, 50)];
+		const faceTop = (30 / 100) * board.height - 36;
+		expect(groupOutline(members, { board }).top).toBeCloseTo(faceTop - RELMAP_GROUP_PAD_PX);
+		for (const wordScale of [1, 2, 3]) {
+			const box = groupOutline(members, { board, wordScale });
+			const nameBottom = box.top + (RELMAP_CAPTION_PX * wordScale * 1.56) / 2;
+			expect(nameBottom).toBeLessThan(faceTop);
+		}
+	});
+
+	// ⚠ AN OVAL'S NAME SITS AT THE TOP OF THE ELLIPSE, far above the faces. Making room for it under
+	// the top line as a box does only made the oval taller and pushed its middle up.
+	it("leaves an oval the same at any word weight, its name already clear of the faces", () => {
+		const members = [at(20, 30), at(40, 50)];
+		const faceTop = (30 / 100) * board.height - 36;
+		const plain = groupOutline(members, { board, shape: "oval" });
+		for (const wordScale of [1, 2, 3]) {
+			const oval = groupOutline(members, { board, shape: "oval", wordScale });
+			expect(oval.cy).toBeCloseTo(plain.cy);
+			expect(oval.ry).toBeCloseTo(plain.ry);
+			expect(oval.top + (RELMAP_CAPTION_PX * wordScale * 1.56) / 2).toBeLessThan(faceTop);
+		}
+		// A box at the same weight does grow above.
+		expect(groupOutline(members, { board, wordScale: 3 }).top)
+			.toBeLessThan(groupOutline(members, { board }).top);
 	});
 
 	it("finds which groups lie wholly inside each one, and breaks a tie of the same people by id", () => {
@@ -336,12 +410,37 @@ describe("the outline round a group", () => {
 		});
 		const shapes = Object.fromEntries(groupShapes(got, board).map(shape => [shape.id, shape.outline]));
 		const { council, elders } = shapes;
-		for (const side of ["left", "top"]) {
-			expect(council[side]).toBeLessThanOrEqual(elders[side] - RELMAP_GROUP_NEST_PX + 0.01);
-		}
+		expect(council.top).toBeLessThanOrEqual(elders.top - groupNestPx() + 0.01);
+		expect(council.left).toBeLessThanOrEqual(elders.left - RELMAP_GROUP_NEST_SIDE_PX + 0.01);
 		for (const side of ["right", "bottom"]) {
-			expect(council[side]).toBeGreaterThanOrEqual(elders[side] + RELMAP_GROUP_NEST_PX - 0.01);
+			expect(council[side]).toBeGreaterThanOrEqual(elders[side] + RELMAP_GROUP_NEST_SIDE_PX - 0.01);
 		}
+	});
+
+	// ⚠ A LONG INNER NAME RUNS PAST ITS OWN BOX'S RIGHT SIDE, so a step measured from the inner line
+	// alone let it cross the outline round it.
+	it("stands a group clear of the name of a group inside it, not only of its line", () => {
+		const got = graph({
+			nodes: {
+				ordga: { name: "Ordga", x: 50, y: 30 },
+				marrec: { name: "Marrec", x: 50, y: 50 },
+				sela: { name: "Sela", x: 50, y: 70 },
+			},
+			groups: {
+				council: { members: { ordga: true, marrec: true, sela: true } },
+				elders: { name: "The elders of the northern marches", members: { ordga: true, marrec: true } },
+			},
+		});
+		const shapes = Object.fromEntries(groupShapes(got, board, { wordScale: 1.5 }).map(shape => [shape.id, shape]));
+		const { council, elders } = shapes;
+		expect(elders.words).toBe("The elders of the northern marches");
+		expect(elders.frame.right).toBeGreaterThan(elders.outline.right + RELMAP_GROUP_NEST_SIDE_PX);
+		expect(council.outline.right).toBeCloseTo(elders.frame.right + RELMAP_GROUP_NEST_SIDE_PX);
+		// Above, the step is still measured from the inner line, where the two names meet.
+		expect(elders.outline.top - council.outline.top).toBeCloseTo(groupNestPx(1.5));
+		// An unnamed group's chip says what it is told to.
+		expect(groupShapes(got, board, { unnamed: "Unnamed group" }).find(shape => shape.id === "council").words)
+			.toBe("Unnamed group");
 	});
 
 	it("lays every group out outermost first, leaving out a group with nobody standing", () => {
@@ -362,5 +461,39 @@ describe("the outline round a group", () => {
 		const bounds = boardBounds([at(0, 0)], board, [outline]);
 		expect(bounds.left).toBeLessThanOrEqual(outline.left);
 		expect(bounds.top).toBeLessThanOrEqual(outline.top);
+	});
+
+	// ⚠ THE NAME SITS CENTRED ON THE TOP LINE, so half of it is above the outline, and a long name
+	// at heavy words runs past the right of a narrow group. Framing the outline alone cut it in half.
+	it("frames a group's name chip with its outline, above the line and past a narrow group", () => {
+		const members = [at(50, 0)];
+		const name = "The hunters of the northern marches";
+		for (const shape of ["box", "oval"]) {
+			const outline = groupOutline(members, { board, shape, wordScale: 3 });
+			const plain = groupFrame(outline, "", 3);
+			const named = groupFrame(outline, name, 3);
+			const halfChip = (RELMAP_CAPTION_PX * 3 * 1.56) / 2;
+			expect(named.top).toBeCloseTo(outline.top - halfChip);
+			expect(named.bottom).toBe(outline.bottom);
+			expect(named.right).toBeGreaterThan(outline.right);
+			// A longer name reaches further; no name still frames the chip's tab and padding.
+			expect(named.right).toBeGreaterThan(plain.right);
+			const bounds = boardBounds(members, board, [named]);
+			expect(bounds.top).toBeLessThanOrEqual(named.top);
+			expect(bounds.right).toBeGreaterThanOrEqual(named.right);
+		}
+	});
+
+	// ⚠ A CHINESE OR JAPANESE NAME IS SET SQUARE, near twice the width of a Latin small capital, and
+	// counted as Latin it framed at two thirds of what was painted.
+	it("frames a name of wide characters at a whole em each", () => {
+		// Heavy words on one face, so both chips run wider than the outline and the frame is the chip.
+		const outline = groupOutline([at(50, 0)], { board, shape: "oval", wordScale: 3 });
+		const latin = groupFrame(outline, "abcdefgh", 3);
+		const wide = groupFrame(outline, "評議会の長老たち", 3);
+		const em = RELMAP_CAPTION_PX * 3;
+		expect(latin.right - latin.left).toBeGreaterThan(outline.w);
+		expect(latin.right - latin.left).toBeLessThan(8 * em);
+		expect(wide.right - wide.left).toBeGreaterThanOrEqual(8 * em);
 	});
 });

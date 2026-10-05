@@ -22,7 +22,7 @@ describe("making a new person through core's dialog", () => {
 		globalThis.game = { user: { id: "gm", isGM: true } };
 		const createDialog = withDialog({ name: "Newt" });
 		await createPerson();
-		expect(createDialog).toHaveBeenCalledWith({});
+		expect(createDialog.mock.calls[0][0]).toEqual({});
 	});
 
 	// A player's is somebody they just put in front of the whole table.
@@ -30,14 +30,37 @@ describe("making a new person through core's dialog", () => {
 		globalThis.game = { user: { id: "u1", isGM: false } };
 		const createDialog = withDialog({ name: "Newt" });
 		await createPerson();
-		expect(createDialog).toHaveBeenCalledWith({ ownership: { default: 2 } });
+		expect(createDialog.mock.calls[0][0]).toEqual({ ownership: { default: 2 } });
+	});
+
+	// Core's questions in this module's frame, by its classes alone: core sets none of its own, so
+	// no way a system merges them can cost core its `ok` callback or its title.
+	it("asks core to draw its dialog in this module's frame, and hands it nothing else", async () => {
+		globalThis.game = { user: { id: "gm", isGM: true } };
+		const createDialog = withDialog({ name: "Newt" });
+		await createPerson();
+		const [, createOptions, dialog] = createDialog.mock.calls[0];
+		expect(createOptions).toEqual({});
+		expect(Object.keys(dialog)).toEqual(["classes"]);
+		expect(dialog.classes).toEqual(expect.arrayContaining(["relmap-window", "relmap-dialog", "relmap-create-person-dialog"]));
 	});
 
 	it("hands back the actor made, and null for a dialog closed", async () => {
 		globalThis.game = { user: { id: "gm", isGM: true } };
-		withDialog({ name: "Newt" });
-		expect(await createPerson()).toEqual({ name: "Newt" });
+		const newt = { documentName: "Actor", name: "Newt" };
+		withDialog(newt);
+		expect(await createPerson()).toBe(newt);
 		withDialog(null);
+		expect(await createPerson()).toBeNull();
+	});
+
+	// A system's own createDialog may answer with anything, its button's action name included. That is
+	// not somebody to put on the map.
+	it("answers null when the dialog hands back anything that is not an actor", async () => {
+		globalThis.game = { user: { id: "gm", isGM: true } };
+		withDialog("ok");
+		expect(await createPerson()).toBeNull();
+		withDialog({ name: "Newt" });
 		expect(await createPerson()).toBeNull();
 	});
 

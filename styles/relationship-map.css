@@ -57,6 +57,21 @@
 	/* The person a half-drawn line is about to land on, and the list the chooser's rail is showing. */
 	--relmap-target: hsl(140deg 40% 18%);
 
+	/* A DIALOG'S FRAME (`.relmap-dialog`): a deep slate title bar, the CTA's hue taken down, so every
+	   question this module asks is plainly one of its own; the edge round the whole window; and the
+	   lift that holds it off the board behind. */
+	--relmap-head-bg: hsl(212deg 20% 30%);
+	--relmap-head-text: hsl(30deg 20% 97%);
+	--relmap-head-icon: hsl(212deg 30% 80%);
+	--relmap-frame-border: hsl(212deg 18% 26%);
+	--relmap-frame-shadow: 0 14px 36px rgb(20 28 40 / 0.28), 0 2px 8px rgb(20 28 40 / 0.18);
+
+	/* Inside one: a field's well, a button's face, and the ring a focused field wears. */
+	--relmap-field-bg: #fff;
+	--relmap-button-bg: #fff;
+	--relmap-button-hover-bg: color-mix(in srgb, var(--relmap-cta-bg) 12%, var(--relmap-button-bg));
+	--relmap-focus-ring: color-mix(in srgb, var(--relmap-accent) 35%, transparent);
+
 	/* Type: core's own face, at the steps this stylesheet was measured with. */
 	--relmap-font: var(--font-body, var(--font-primary, "Signika", sans-serif));
 	--relmap-fs-2xs: 0.9em;
@@ -152,6 +167,15 @@
 
 	--relmap-target: hsl(140deg 40% 66%);
 
+	--relmap-head-bg: hsl(212deg 18% 21%);
+	--relmap-head-text: #e9e9ed;
+	--relmap-head-icon: hsl(212deg 30% 72%);
+	--relmap-frame-border: hsl(212deg 14% 32%);
+	--relmap-frame-shadow: 0 14px 36px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
+
+	--relmap-field-bg: color-mix(in srgb, var(--relmap-text) 7%, var(--relmap-page));
+	--relmap-button-bg: color-mix(in srgb, var(--relmap-text) 9%, var(--relmap-panel));
+
 	--relmap-ink-crimson: hsl(350deg 62% 53.5%);
 }
 
@@ -211,7 +235,8 @@
 /* ⚠ THE MAP WINDOW HAS NO PADDING. Core pads a V1 content well by 8px over its parchment, which framed
    the board in a tan border. The page strip, the board and the footer each paint their own ground, so
    the map runs edge to edge inside the frame. Only `.relmap-app`: every dialog of ours also wears
-   `.relmap-window` and keeps core's padding. */
+   `.relmap-window`, and a V2 dialog moves its padding onto its content and footer instead (see
+   `.relmap-dialog.application .window-content` below). */
 .relmap-app .window-content {
 	padding: 0;
 }
@@ -221,7 +246,7 @@
 }
 
 :where(.relmap-window.theme-dark button) {
-	background: color-mix(in srgb, var(--relmap-text) 9%, var(--relmap-panel));
+	background: var(--relmap-button-bg);
 	border-color: var(--relmap-rule-strong);
 	color: var(--relmap-text-body);
 }
@@ -235,13 +260,195 @@
    file's own single-class rules: it painted a lighter box inside the people picker's find field,
    whose input is meant to be see-through inside its bordered label. */
 :where(.relmap-window.theme-dark :is(input[type="text"], input[type="number"], input[type="search"], select)) {
-	background: color-mix(in srgb, var(--relmap-text) 7%, var(--relmap-page));
+	background: var(--relmap-field-bg);
 	border-color: var(--relmap-rule-strong);
 	color: var(--relmap-text-body);
 }
 
 :where(.relmap-window.theme-dark) :is(input, select)::placeholder {
 	color: var(--relmap-text-faint);
+}
+
+/* ── Our dialogs ────────────────────────────────────────────────────────────────────────────────
+   Every window this module opens except the map itself wears `.relmap-dialog`
+   (module/utils/window-theme.js DIALOG_CLASS): the people chooser (a V1 window), the small DialogV2
+   questions, the "are you sure"s, and core's own Create Actor dialog when the map asks for one
+   (utils/create-person.js). They share one frame: a slate title bar with the question's glyph in it,
+   the board's page ground, and a footer on the panel ground with the confirm in slate.
+
+   ⚠ NO `!important`, AND NONE NEEDED. Every rule of core's sits in a cascade layer, and a rule outside
+   any layer beats a layered one whatever either's specificity. What these rules must still out-weigh
+   is this file's OWN rules, which is said where it matters.
+
+   The frame, V2 then V1. A V2 window paints itself from core's custom properties, so it is handed
+   ours; a V1 window has none to hand, so it is painted directly. */
+.relmap-dialog:is(.application, .window-app) {
+	border-radius: 8px;
+	box-shadow: var(--relmap-frame-shadow);
+	font-family: var(--relmap-font);
+}
+
+.relmap-dialog.application {
+	--background: var(--relmap-page);
+	--color-border: var(--relmap-frame-border);
+	--color-header-background: var(--relmap-head-bg);
+}
+
+.relmap-dialog.window-app {
+	overflow: hidden;
+	border: 1px solid var(--relmap-frame-border);
+	background: var(--relmap-page);
+}
+
+.relmap-dialog .window-header {
+	background: var(--relmap-head-bg);
+	border-bottom: 1px solid var(--relmap-frame-border);
+	color: var(--relmap-head-text);
+}
+
+/* Core gives a V2 title its own light ink, which is the right ink on this bar too, but said here so the
+   two kinds of window cannot drift apart. */
+.relmap-dialog .window-header .window-title {
+	color: inherit;
+	font-family: var(--relmap-font);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+
+.relmap-dialog .window-header .window-icon {
+	color: var(--relmap-head-icon);
+}
+
+/* A V1 header has no gap of its own (core sets it to 0); the glyph PersonPickerDialog puts there
+   needs one. */
+.relmap-dialog.window-app .window-header .window-icon {
+	flex: none;
+	margin-right: 0.5em;
+}
+
+/* The close button (and anything else core puts on the bar), quieter than the title until pointed at. */
+.relmap-dialog .window-header :is(.header-control, .header-button) {
+	color: inherit;
+	opacity: 0.75;
+}
+
+.relmap-dialog .window-header :is(.header-control, .header-button):hover {
+	opacity: 1;
+}
+
+/* THE GROUND, in both themes. Heavier than the dark-theme frame above (`:where()`, zero) and than
+   core's parchment; the people chooser's own `padding: 0` is the same weight and later, so it holds. */
+.relmap-dialog .window-content {
+	background: var(--relmap-page);
+	color: var(--relmap-text-body);
+}
+
+/* ⚠ A V2 DIALOG'S PADDING MOVES INWARDS, onto its content and its footer, so the footer's panel ground
+   runs to the window's edges instead of floating as a band inside a margin. Core blurs a dark window
+   behind a translucent ground; this one is opaque, so the blur is only cost. */
+.relmap-dialog.application .window-content {
+	padding: 0;
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+.relmap-dialog .dialog-form {
+	gap: 0;
+}
+
+.relmap-dialog .dialog-content {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin: 0;
+	padding: 16px 18px 18px;
+}
+
+.relmap-dialog .dialog-content p {
+	margin: 0;
+	line-height: 1.45;
+}
+
+/* CORE'S CREATE ACTOR FORM, stacked: each label on its own line over its field, as this module's own
+   prompts lay theirs out (`.relmap-text-prompt-field` and `-label`, which share these rules). Core's
+   side-by-side rows leave a 360px window a third label and two thirds field. Only core's plain rows,
+   the direct children: a system that brings its own creation form brings its own layout. */
+.relmap-text-prompt-field,
+.relmap-create-person-dialog .dialog-content > .form-group {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 4px;
+	margin: 0;
+}
+
+.relmap-create-person-dialog .dialog-content > .form-group > :is(label, .form-fields) {
+	flex: none;
+}
+
+/* ⚠ A SYSTEM'S OWN CREATION FORM KEEPS ITS PADDING. createPerson's classes reach whatever window
+   `createDialog` opens, and the skin's `padding: 0` above is only taken back by core's `.dialog-content`
+   and `.form-footer`. A window with no core `.dialog-form` in it is a system's, so it gets back what
+   core and the system laid out for it: `revert-layer` from this unlayered sheet falls to their layers. */
+.relmap-create-person-dialog.application .window-content:not(:has(> .dialog-form)) {
+	padding: revert-layer;
+}
+
+.relmap-text-prompt-label,
+.relmap-create-person-dialog .dialog-content > .form-group > label {
+	font-size: var(--relmap-fs-sm);
+	font-weight: 600;
+	line-height: 1.3;
+	color: var(--relmap-text-secondary);
+}
+
+/* ITS GLYPH, drawn by the stylesheet rather than asked of core: handing core a `window` option would
+   risk its title under a system's shallow merge (utils/create-person.js). Core's own icon element is
+   hidden with a layered `!important`, which nothing outside the layer can undo, so the glyph goes
+   before the title instead, in the title-bar icon's ink. */
+.relmap-create-person-dialog .window-header .window-title::before {
+	content: "\f234";
+	margin-right: 0.5em;
+	font-family: var(--font-awesome);
+	font-weight: 900;
+	color: var(--relmap-head-icon);
+}
+
+/* THE FIELDS. Zero specificity, the whole selector inside `:where()`, for the reason the dark frame
+   above gives: the people chooser's find box is an input meant to be see-through inside its bordered
+   label, and its single-class rule has to win. Later than the dark frame's field rule, which is the
+   same weight, so a dark dialog takes these. */
+:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select)) {
+	background: var(--relmap-field-bg);
+	border: 1px solid var(--relmap-rule-strong);
+	border-radius: var(--relmap-radius);
+	box-shadow: none;
+	color: var(--relmap-text-body);
+}
+
+/* A ring rather than core's glow, in the accent. The transparent outline is not decoration: a forced-
+   colours display drops every box-shadow and draws the outline in its place. The people chooser's find
+   box wears it on the box round the field, which is what reads as the control there. */
+:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select):focus),
+.relmap-person-picker-find:focus-within {
+	border-color: var(--relmap-accent);
+	outline: 2px solid transparent;
+	box-shadow: 0 0 0 3px var(--relmap-focus-ring);
+}
+
+/* THE FOOTER, on the panel ground under a hairline, buttons content-sized at the right-hand end with
+   the confirm first: the shape the people chooser's footer (`.relmap-rail-nav`) already has, and the
+   buttons wear its skin (further down). Core makes every footer button share the row equally. */
+.relmap-dialog :is(.form-footer, .relmap-rail-nav) {
+	padding: 10px 16px 12px;
+	background: var(--relmap-panel);
+}
+
+.relmap-dialog .form-footer {
+	justify-content: flex-end;
+	gap: 8px;
+	margin: 0;
+	border-top: 1px solid var(--relmap-rule);
 }
 
 /* ── Relationship map ─────────────────────────────────────────────────────────
@@ -1513,18 +1720,25 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
 /* THE NAME, sat on the outline's top edge. Body ink on the page tone with the caption's halo,
    NEVER coloured type: the colour is on the outline, and a short tab of it beside the words ties
-   the two together. Fixed pixels like a portrait's name, for the reason given there. */
+   the two together. Board pixels like a portrait's name, for the reason given there.
+
+   ⚠ SET IN THE LINE CAPTIONS' SIZE, AND THE CORNER'S TEXT WEIGHT MULTIPLIES IT the same way
+   (`.relmap-label-text`): the reader turning the words up turns these up with them. The chip's
+   padding, gap, tab and cap are in EMS so the whole chip grows with its words, and the outline
+   round a group with another inside it stands further clear to match (`groupNestPx` in
+   module/utils/relmap-geometry.js, which reads this chip as 1.56em tall, and estimates its width from
+   the padding, gap, tab and max-width here to frame it whole: keep the two together). */
 .relmap-group-name {
 	position: absolute;
 	display: inline-flex;
 	align-items: center;
-	gap: 5px;
-	max-width: 220px;
-	padding: 1px 7px;
+	gap: 0.35em;
+	max-width: 13.75em;
+	padding: 0.08em 0.45em;
 	border-radius: var(--relmap-radius-sm);
 	background: var(--relmap-page);
 	color: var(--relmap-text-body);
-	font-size: 13px;
+	font-size: calc(16px * var(--relmap-word-scale, 1));
 	font-weight: 700;
 	font-variant: small-caps;
 	letter-spacing: 0.04em;
@@ -1552,8 +1766,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
 .relmap-group-tab {
 	flex: none;
-	width: 10px;
-	height: 10px;
+	width: 0.65em;
+	height: 0.65em;
 	border-radius: 2px;
 	background: var(--relmap-ink, var(--relmap-ink-slate));
 }
@@ -2928,8 +3142,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	flex: 0 0 auto;
 	padding: 0 0.5em;
 	border: 1px solid var(--relmap-rule-strong);
-	border-radius: var(--relmap-radius-sm);
-	background: var(--relmap-page);
+	border-radius: var(--relmap-radius);
+	background: var(--relmap-field-bg);
 }
 
 .relmap-person-picker-find > i {
@@ -3161,28 +3375,55 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	gap: 10px;
 }
 
-.relmap-rail-nav button {
+/* AND EVERY DIALOG FOOTER'S BUTTONS wear the same skin, so a question asked in a DialogV2 and the
+   people chooser answer with the same two presses. */
+.relmap-rail-nav button,
+.relmap-dialog .form-footer button {
 	/* Content-sized buttons at the row's ends; without inline-flex + width:auto,
 	   Foundry core's block-level `button { display: flex }` makes each fill the row,
 	   stacking them and pushing the primary action off-screen. */
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: 0.4em;
 	width: auto;
-	flex-shrink: 0;
-	padding: 5px 14px;
+	min-width: 6em;
+	/* `flex: none` and not only `flex-shrink: 0`: core GROWS every DialogV2 footer button to share
+	   the row, which `flex-shrink` alone leaves on. */
+	flex: none;
+	/* The height is the padding's, not core's `--button-size`, which differs between the two kinds of
+	   footer and would leave the same press two heights in two windows. ⚠ BOTH OF CORE'S HEIGHTS:
+	   it sets `min-height` to the same size as `height`, and a DialogV2 footer's size is 1.25 field
+	   heights (40px), so undoing `height` alone left the press taller than the field above it. */
+	height: auto;
+	min-height: 0;
+	padding: 6px 14px;
+	line-height: 1.4;
 	font-family: var(--relmap-font);
 	font-size: var(--relmap-fs-sm);
 	cursor: pointer;
 	border: 1px solid var(--relmap-rule-strong);
-	border-radius: var(--relmap-radius-sm);
-	background: var(--relmap-panel);
-	color: inherit;
-	transition: background 0.15s;
+	border-radius: var(--relmap-radius);
+	background: var(--relmap-button-bg);
+	color: var(--relmap-text-body);
+	transition: background 0.15s, border-color 0.15s;
 }
 
-.relmap-rail-nav button:hover:not(:disabled) { background: var(--relmap-hover-bg); }
-.relmap-rail-nav button:disabled { opacity: 0.4; cursor: not-allowed; }
+/* A variant changes its hover through the token, not through a heavier selector: this rule out-weighs
+   `.relmap-window .relmap-danger:hover`, so the danger press hands it its red (further down). */
+.relmap-rail-nav button:hover:not(:disabled),
+.relmap-dialog .form-footer button:hover:not(:disabled) {
+	background: var(--relmap-button-hover-bg);
+}
+
+.relmap-rail-nav button:disabled,
+.relmap-dialog .form-footer button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.relmap-rail-nav button:focus-visible,
+.relmap-dialog .form-footer button:focus-visible {
+	outline: 2px solid var(--relmap-accent);
+	outline-offset: 2px;
+}
 
 /* Primary "go" button (Begin / Done / Save). !important to beat the base nav-button
    background, whose descendant selector outspecifies this one class. */
@@ -3190,8 +3431,11 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    re-declare all three properties, both state rules included; a fill stated twice is one that comes
    apart the first time a token is retuned in only one of them. Which button it is put ON still
    differs: the nav rail hands it to its affirmative, and a window with no rail wears the CTA. */
+/* Core's Create Actor confirm takes the fill here rather than as `.relmap-cta`, for the reason
+   utils/create-person.js gives. */
 .relmap-rail-btn--primary,
-.relmap-cta {
+.relmap-cta,
+.relmap-create-person-dialog .form-footer button[data-action="ok"] {
 	font-weight: 600;
 	background: var(--relmap-cta-bg) !important;
 	border-color: var(--relmap-cta-border) !important;
@@ -3199,12 +3443,14 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 }
 
 .relmap-rail-btn--primary:hover:not(:disabled),
-.relmap-cta:hover:not(:disabled) { background: var(--relmap-cta-bg-hover) !important; }
+.relmap-cta:hover:not(:disabled),
+.relmap-create-person-dialog .form-footer button[data-action="ok"]:hover:not(:disabled) { background: var(--relmap-cta-bg-hover) !important; }
 
 /* A disabled primary (a confirm button with nothing chosen yet) drops the
    slate fill and reads as a plain disabled button. */
 .relmap-rail-btn--primary:disabled,
-.relmap-cta:disabled {
+.relmap-cta:disabled,
+.relmap-create-person-dialog .form-footer button[data-action="ok"]:disabled {
 	background: var(--relmap-panel) !important;
 	border-color: var(--relmap-rule-strong) !important;
 	color: inherit !important;
@@ -3285,6 +3531,17 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	width: 100%;
 }
 
+/* Several labelled boxes: each label sits on its own line above its box. */
+.relmap-text-prompt--fields {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.relmap-text-prompt-lead {
+	color: var(--relmap-text-quiet);
+}
+
 .relmap-content-picker {
 	display: flex;
 	flex-direction: column;
@@ -3305,7 +3562,25 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 }
 
 .relmap-content-picker-option:hover {
-	background: var(--relmap-hover-bg);
+	background: var(--relmap-choice-hover-bg);
+}
+
+/* The row's glyph on a tile of its own, which turns solid with the pick: a list of maps reads as a list
+   of things to open, and the picked one is marked a second way besides its edge. */
+.relmap-content-picker-option > i {
+	display: grid;
+	place-items: center;
+	width: 2em;
+	height: 2em;
+	border-radius: var(--relmap-radius);
+	background: color-mix(in srgb, var(--relmap-accent) 16%, transparent);
+	color: var(--relmap-text-secondary);
+	transition: background 0.12s, color 0.12s;
+}
+
+.relmap-content-picker-option:has(input:checked) > i {
+	background: var(--relmap-accent);
+	color: var(--relmap-accent-text);
 }
 
 /* The picked row: an accented edge and a filled bed, so the answer can be seen without reading down
@@ -3338,6 +3613,10 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 /* ── A confirm that destroys work ─────────────────────────────────────────────────────────────────
    Red only while it is about to be pressed: a red button sitting open reads as a warning about the
    thing being asked about, rather than as the one press that destroys it. */
+.relmap-danger {
+	--relmap-button-hover-bg: var(--relmap-danger-bg);
+}
+
 .relmap-window .relmap-danger:hover,
 .relmap-window .relmap-danger:focus-visible {
 	border-color: var(--relmap-danger-border);

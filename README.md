@@ -33,11 +33,11 @@ Then enable **Relationship Map - by PWD** in your world's module settings.
 
 ## Getting started
 
-1. Open the **Journal** sidebar (the book tab) and press **Relationship Maps** at the top. In a world with no collection yet, you are asked what the first one is called.
+1. Open the **Journal** sidebar (the book tab) and press **Relationship Maps** at the top. In a world with no collection yet, you are asked to name the first collection and the first map in it.
 
    ![The Journal sidebar tab, and the Relationship Maps button under Create Entry and Create Folder](docs/images/journal-sidebar-button.webp)
 
-2. Press **New map**, or the **+** beside the map tabs, to add a map to the collection.
+2. Press the **+** beside the map tabs to add another map to the collection.
 3. Drag actors from the **Actors** sidebar onto the map, or press **Add someone** under it.
 4. Drag from the small link handle on a portrait to another portrait to draw a line. Click the line to write on it and style it.
 5. Right-click a portrait to take that person off the map. Double-click it to open their sheet. Shift-click portraits, or Shift-drag a box on open paper, to select several and move them together.

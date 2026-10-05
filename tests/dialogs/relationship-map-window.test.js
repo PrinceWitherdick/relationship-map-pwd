@@ -52,6 +52,7 @@ const chooser = { asked: [], answer: null };
 vi.mock("../../module/dialogs/content-picker.js", () => ({
 	pickContentOption: config => { chooser.asked.push(config); return Promise.resolve(chooser.answer); },
 	promptForText: () => Promise.resolve(null),
+	promptForTexts: () => Promise.resolve(null),
 }));
 
 const { RelationshipMapWindow, openRelationshipMap } =
@@ -4840,6 +4841,22 @@ describe("deleting a version 1 map", () => {
 		expect(app._confirm.mock.calls[0][0].body).toBe(TABLE.format("RELMAP.maps.deleteBody", {
 			name: "The people of Stillwater", boards: 1, people: 2,
 		}));
+	});
+});
+
+describe("the are-you-sure", () => {
+	// `DialogV2.wait` gives a window no width, and one without grows to its sentence on a single line.
+	it("asks in a window of a set width", async () => {
+		const was = foundry.applications;
+		const wait = vi.fn().mockResolvedValue("keep");
+		foundry.applications = { api: { DialogV2: { wait } } };
+		try {
+			const { app } = windowFor(structuredClone(TWO_PEOPLE));
+			expect(await app._confirm({ title: "T", body: "B", confirm: "Go", cancel: "Keep" })).toBe(false);
+			expect(wait.mock.calls[0][0].position).toEqual({ width: 420 });
+		} finally {
+			foundry.applications = was;
+		}
 	});
 });
 

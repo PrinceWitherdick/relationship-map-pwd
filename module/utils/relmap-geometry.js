@@ -349,10 +349,62 @@ const GROUP_REACH_X = 54;
 const GROUP_REACH_TOP = 36;
 const GROUP_REACH_BOTTOM = 56;
 export const RELMAP_GROUP_PAD_PX = 18;
-/** How far an outline stands clear of a group inside it, so the two are never drawn on top of each
- * other. MEASURED, not picked: the inner group's name sits ON its line, half of a 20px chip above it,
- * and at 16 that chip touched the outer stroke. 24 leaves it about seven pixels of paper. */
-export const RELMAP_GROUP_NEST_PX = 24;
+/** The paper between an outer group's name, hanging below its line, and the name of a group nested
+ * inside it, standing on the inner line just below. */
+const GROUP_NEST_GAP_PX = 6;
+/** How far an outline stands clear of a group inside it at the left, the right and the bottom, where
+ * no name sits on either line: the step 1.1.0 stood every side clear by. Measured from the inner
+ * group's FRAME across (`groupFrame`), so a long inner name running past its own box's side is stood
+ * clear of too. */
+export const RELMAP_GROUP_NEST_SIDE_PX = 24;
+/** The paper between a group's own name, hanging below its top line, and the faces under it. At the
+ * ordinary text size the margin round the faces already holds the name with this to spare. */
+const GROUP_NAME_CLEAR_PX = 5;
+/** How tall a group's name chip is, in ems of its own type: `line-height: 1.4` and a padding of
+ * 0.08em top and bottom (`.relmap-group-name`). Kept with that rule. */
+export const RELMAP_GROUP_NAME_CHIP_EM = 1.56;
+/** What a group's name chip costs across, in ems of its own type: one character of the bold, spaced
+ * small capitals (erring large, as the captions' estimate does), the padding, tab and gap round the
+ * words, and the cap the chip is cut to (`max-width`). Kept with `.relmap-group-name` like the
+ * height above; tests/styles/relationship-map-caption-size.test.js holds the two together.
+ *
+ * ⚠ A WIDE CHARACTER IS A WHOLE EM. Chinese, Japanese and Korean glyphs, and the full-width forms,
+ * are set square, near twice a Latin small capital: counted at 0.6 a name of them framed at two
+ * thirds of its painted width and ran past the outline round it. */
+const GROUP_NAME_CHAR_EM = 0.6;
+const GROUP_NAME_WIDE_EM = 1.05;
+const WIDE_CHAR = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{1F300}-\u{1FAFF}\u{20000}-\u{3FFFD}]/u;
+export const RELMAP_GROUP_NAME_CHROME_EM = 0.45 * 2 + 0.65 + 0.35;
+export const RELMAP_GROUP_NAME_MAX_EM = 13.75;
+
+/** How wide a group name's words are, in ems of its own type. */
+function groupNameWordsEm(words) {
+	let em = 0;
+	for (const ch of String(words ?? "")) em += WIDE_CHAR.test(ch) ? GROUP_NAME_WIDE_EM : GROUP_NAME_CHAR_EM;
+	return em;
+}
+
+/** How tall a group's name chip is in board pixels, at the corner's word weight. */
+function groupNameChipPx(wordScale = 1) {
+	return RELMAP_CAPTION_PX * ratioOf(wordScale) * RELMAP_GROUP_NAME_CHIP_EM;
+}
+
+/**
+ * How far an outline stands clear ABOVE a group inside it, so the two are never drawn on top of each
+ * other. The other three sides, where no name sits, stand `RELMAP_GROUP_NEST_SIDE_PX` clear.
+ *
+ * ⚠ A WHOLE NAME CHIP OF IT, AND IT GROWS WITH THE READER'S TEXT SIZE. Every name sits centred ON its
+ * line: the outer name hangs half a chip below the outer line and the inner name stands half a chip
+ * above the inner one, both a few pixels in from nearly the same corner, so the step holds both halves
+ * and a gap. A group's name is set in the line captions' sixteen times the corner's word weight (the
+ * stylesheet multiplies by the same `--relmap-word-scale`), so a fixed step measured for one size of
+ * chip lets a bigger pair lie across each other.
+ *
+ * @param {number} [wordScale]  the corner's word weight as a multiplier, from `weightScales`.
+ */
+export function groupNestPx(wordScale = 1) {
+	return GROUP_NEST_GAP_PX + groupNameChipPx(wordScale);
+}
 /** The corner of a box outline. */
 const GROUP_CORNER_PX = 22;
 /** How far in from a box's left corner its name sits. */
@@ -408,12 +460,16 @@ export function groupsInside(groups = {}) {
  * @param {{width: number, height: number}} options.board  the sheet.
  * @param {string} [options.shape]  "box" or "oval".
  * @param {Array<{left: number, top: number, right: number, bottom: number}>} [options.contain]
- *        outlines (board pixels) this one must stand clear round: the groups wholly inside it.
+ *        what this one must stand clear round (board pixels): the groups wholly inside it, each as
+ *        wide as its name reaches (`groupShapes`) and as tall as its line.
+ * @param {number} [options.wordScale]  the corner's word weight, which the name is set at. It decides
+ *        how far clear above the groups inside this one the outline stands (`groupNestPx`), and how
+ *        much room a box's own name, hanging below the top line, needs above the faces.
  * @returns {{shape: string, left: number, top: number, right: number, bottom: number,
  *   cx: number, cy: number, w: number, h: number, rx: number, ry: number,
  *   name: {left: number, top: number, align: string}}|null}  null with nobody to draw round.
  */
-export function groupOutline(members = [], { board, shape = "box", contain = [] } = {}) {
+export function groupOutline(members = [], { board, shape = "box", contain = [], wordScale = 1 } = {}) {
 	const width = Number(board?.width) || RELMAP_BOARD_WIDTH;
 	const height = Number(board?.height) || width / RELMAP_BOARD_ASPECT;
 	let left = Infinity; let top = Infinity; let right = -Infinity; let bottom = -Infinity;
@@ -427,14 +483,24 @@ export function groupOutline(members = [], { board, shape = "box", contain = [] 
 		bottom = Math.max(bottom, y + GROUP_REACH_BOTTOM);
 	}
 	if (!Number.isFinite(left)) return null;
-	left -= RELMAP_GROUP_PAD_PX; right += RELMAP_GROUP_PAD_PX; top -= RELMAP_GROUP_PAD_PX; bottom += RELMAP_GROUP_PAD_PX;
-	// Round every group inside this one, a step clear of its line (and of the name sitting on it).
+	left -= RELMAP_GROUP_PAD_PX; right += RELMAP_GROUP_PAD_PX; bottom += RELMAP_GROUP_PAD_PX;
+	// ⚠ A BOX'S NAME HANGS HALF ITS CHIP BELOW THE TOP LINE, and grows with the reader's words: the
+	// margin holds it at the ordinary size, but turned up it would lie across the top member's face.
+	// An oval's name sits at the top of the ellipse, well above the faces, and needs no such room.
+	const chipPx = groupNameChipPx(wordScale);
+	const nameRoom = shape === "oval" ? 0 : chipPx / 2 + GROUP_NAME_CLEAR_PX;
+	top -= Math.max(RELMAP_GROUP_PAD_PX, nameRoom);
+	// Round every group inside this one, a step clear of its line: above, where the names on both
+	// lines meet, a whole chip and a gap; on the other three sides, a plain step. A `contain` entry
+	// from `groupShapes` reaches across as far as the inner name does (`groupFrame`), and stops at
+	// the inner line above, which the step there is measured from.
+	const nestPx = groupNestPx(wordScale);
 	for (const inner of contain ?? []) {
 		if (![inner?.left, inner?.top, inner?.right, inner?.bottom].every(Number.isFinite)) continue;
-		left = Math.min(left, inner.left - RELMAP_GROUP_NEST_PX);
-		right = Math.max(right, inner.right + RELMAP_GROUP_NEST_PX);
-		top = Math.min(top, inner.top - RELMAP_GROUP_NEST_PX);
-		bottom = Math.max(bottom, inner.bottom + RELMAP_GROUP_NEST_PX);
+		left = Math.min(left, inner.left - RELMAP_GROUP_NEST_SIDE_PX);
+		right = Math.max(right, inner.right + RELMAP_GROUP_NEST_SIDE_PX);
+		top = Math.min(top, inner.top - nestPx);
+		bottom = Math.max(bottom, inner.bottom + RELMAP_GROUP_NEST_SIDE_PX);
 	}
 	const cx = (left + right) / 2;
 	const cy = (top + bottom) / 2;
@@ -456,12 +522,42 @@ export function groupOutline(members = [], { board, shape = "box", contain = [] 
 	const box = {
 		shape: "box", cx, cy, rx: corner, ry: corner, left, top, right, bottom, w, h,
 		name: {
-			left: ((left + Math.min(GROUP_NAME_INSET_PX, w / 4)) / width) * 100,
+			left: ((left + groupNameInset(w)) / width) * 100,
 			top: (top / height) * 100,
 			align: "start",
 		},
 	};
 	return { ...box, d: groupPathD(box) };
+}
+
+/** How far in from a box's left corner its name sits, for a box this wide. */
+function groupNameInset(w) {
+	return Math.min(GROUP_NAME_INSET_PX, w / 4);
+}
+
+/**
+ * An outline with its name chip, which sits centred ON the top line and so reaches above it, and past
+ * the side of a narrow group: what the board frames to show the group whole (`boardBounds`).
+ *
+ * The chip's width is ESTIMATED from its words, as the captions' is, which is why only the framing
+ * asks for it: the outline itself never depends on how long a name is.
+ *
+ * @param {object} outline  from `groupOutline`.
+ * @param {string} words  what the name chip shows.
+ * @param {number} [wordScale]  the corner's word weight, which the name is set at.
+ * @returns {{left: number, top: number, right: number, bottom: number}}
+ */
+export function groupFrame(outline, words, wordScale = 1) {
+	const chipPx = groupNameChipPx(wordScale);
+	const em = RELMAP_GROUP_NAME_CHROME_EM + groupNameWordsEm(words);
+	const chipWide = (chipPx / RELMAP_GROUP_NAME_CHIP_EM) * Math.min(RELMAP_GROUP_NAME_MAX_EM, em);
+	const chipLeft = outline.shape === "oval" ? outline.cx - chipWide / 2 : outline.left + groupNameInset(outline.w);
+	return {
+		left: Math.min(outline.left, chipLeft),
+		top: outline.top - chipPx / 2,
+		right: Math.max(outline.right, chipLeft + chipWide),
+		bottom: outline.bottom,
+	};
 }
 
 /**
@@ -496,10 +592,13 @@ export function groupPathD({ shape, left, top, right, bottom, cx, cy, rx, ry } =
  * @param {Map<string, string[]>} [opts.within]  `groupsInside(graph.groups)`, worked out once per drag
  *   (membership cannot change under one).
  * @param {Set<string>} [opts.only]  the groups wanted; those and the groups inside them are laid out.
- * @returns {Array<{id: string, group: object, members: string[], outline: object}>}  outermost first,
- *   so a nested outline paints over the one round it.
+ * @param {number} [opts.wordScale]  the corner's word weight, which the names are set at: see `groupNestPx`.
+ * @param {string} [opts.unnamed]  what the name chip of a group with no name says.
+ * @returns {Array<{id: string, group: object, members: string[], outline: object, words: string,
+ *   frame: object}>}  outermost first, so a nested outline paints over the one round it. `words` is
+ *   what the name chip shows and `frame` the outline with that chip (`groupFrame`).
  */
-export function groupShapes(graph, board, { within, only } = {}) {
+export function groupShapes(graph, board, { within, only, wordScale = 1, unnamed = "" } = {}) {
 	const groups = graph?.groups ?? {};
 	within ??= groupsInside(groups);
 	const needed = only ? new Set([...only].flatMap(id => [id, ...(within.get(id) ?? [])])) : null;
@@ -507,19 +606,23 @@ export function groupShapes(graph, board, { within, only } = {}) {
 	// INNERMOST FIRST, so every group inside another has its outline before the one round it asks.
 	// A group can only hold groups with fewer groups inside them, so this order always has them ready.
 	const order = Object.keys(groups).sort((a, b) => within.get(a).length - within.get(b).length || byId(a, b));
-	const outlines = new Map();
+	// What each group inside another is stood clear of: its frame across, so its name is too, and
+	// its own line above and below (see `groupOutline`).
+	const clear = new Map();
 	const out = [];
 	for (const id of order) {
 		if (needed && !needed.has(id)) continue;
 		const group = groups[id];
 		const members = Object.keys(group?.members ?? {}).filter(nodeId => graph.nodes?.[nodeId]).sort();
 		const outline = groupOutline(members.map(nodeId => graph.nodes[nodeId]), {
-			board, shape: group.shape,
-			contain: within.get(id).map(inner => outlines.get(inner)).filter(Boolean),
+			board, shape: group.shape, wordScale,
+			contain: within.get(id).map(inner => clear.get(inner)).filter(Boolean),
 		});
 		if (!outline) continue;
-		outlines.set(id, outline);
-		out.push({ id, group, members, outline, depth: within.get(id).length });
+		const words = group.name || unnamed;
+		const frame = groupFrame(outline, words, wordScale);
+		clear.set(id, { left: frame.left, right: frame.right, top: outline.top, bottom: outline.bottom });
+		out.push({ id, group, members, outline, words, frame, depth: within.get(id).length });
 	}
 	// Outermost first, then by id, so a nested outline paints over the one round it and the order on
 	// the board never depends on how the flag happened to come back.

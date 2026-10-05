@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readCss, readRepo, declarations, stripComments } from "../fakes/css.js";
-import { RELMAP_CAPTION_PX } from "../../module/utils/relmap-geometry.js";
+import {
+	RELMAP_GROUP_NAME_CHIP_EM, RELMAP_GROUP_NAME_CHROME_EM, RELMAP_GROUP_NAME_MAX_EM, RELMAP_CAPTION_PX,
+} from "../../module/utils/relmap-geometry.js";
 import { RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN } from "../../module/relmap/relmap-store.js";
 
 // How big the writing on a line is set, where the stylesheet and the arithmetic have to agree.
@@ -49,6 +51,33 @@ describe("the size the writing on a line is set in", () => {
 	it("multiplies both by the weight this reader asked for", () => {
 		expect(CAPTION).toMatch(/font-size:\s*calc\(/);
 		expect(CAPTION).toMatch(/var\(\s*--relmap-word-scale\s*,\s*1\s*\)/);
+	});
+
+	// A GROUP'S NAME IS SET IN THE SAME TYPE AS AN ORDINARY CAPTION, and the corner's text weight
+	// turns it up and down with them. The chip is in ems so it grows with its words,
+	// and `groupNestPx` reads it as 1.56em tall to keep a nested outline clear of the inner name.
+	it("sets a group's name at the ordinary caption size, times the same weight", () => {
+		const NAME = declarations(CSS, ".relmap-group-name");
+		expect(NAME, ".relmap-group-name").toBeTruthy();
+		const said = /calc\(\s*([\d.]+)px\s*\*\s*var\(\s*--relmap-word-scale\s*,\s*1\s*\)\s*\)/.exec(NAME);
+		expect(said, "font-size: calc(<base>px * var(--relmap-word-scale, 1))").toBeTruthy();
+		expect(Number(said[1])).toBe(RELMAP_CAPTION_PX);
+		const lineHeight = Number(/line-height:\s*([\d.]+)/.exec(NAME)?.[1]);
+		const padTop = Number(/padding:\s*([\d.]+)em/.exec(NAME)?.[1]);
+		expect(lineHeight + 2 * padTop).toBeCloseTo(RELMAP_GROUP_NAME_CHIP_EM);
+	});
+
+	// AND ACROSS: `groupFrame` stands a nested outline clear of the inner name by an estimate of the
+	// chip's width, made of these same padding, tab, gap and cap. Retuned in the sheet alone, the
+	// estimate would frame a chip the paint no longer draws.
+	it("frames a group's name chip as wide as the sheet draws its padding, tab, gap and cap", () => {
+		const NAME = declarations(CSS, ".relmap-group-name");
+		const TAB = declarations(CSS, ".relmap-group-tab");
+		const padSide = Number(/padding:\s*[\d.]+em\s+([\d.]+)em/.exec(NAME)?.[1]);
+		const gap = Number(/(?:^|[;{\s])gap:\s*([\d.]+)em/.exec(NAME)?.[1]);
+		const tab = Number(/(?:^|[;{\s])width:\s*([\d.]+)em/.exec(TAB)?.[1]);
+		expect(2 * padSide + tab + gap).toBeCloseTo(RELMAP_GROUP_NAME_CHROME_EM);
+		expect(Number(/max-width:\s*([\d.]+)em/.exec(NAME)?.[1])).toBe(RELMAP_GROUP_NAME_MAX_EM);
 	});
 
 	// ⚠ A PROPERTY AND NOT A `font-size`, so the two rules that have to out-rank a line's own size

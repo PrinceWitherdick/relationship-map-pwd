@@ -1,13 +1,14 @@
 // HOW A RELATIONSHIP MAP COMES INTO EXISTENCE, and which one "open the maps" lands on.
 //
 // NOTHING IS MADE FOR A WORLD UNASKED. The first time somebody opens the maps in a world that has
-// none, they are asked what the first collection is called, and so is every collection after it. A
-// collection arrives with no maps in it at all: every map in it is one somebody added with the "+".
+// none, they are asked what the first collection is called AND what its first map is called, in one
+// window, and so is every collection after it. Both are named by the reader: nothing arrives that
+// nobody asked for, and the window opens on a map rather than on an empty collection.
 
 import { format, localize } from "../utils/i18n.js";
-import { pickContentOption, promptForText } from "../dialogs/content-picker.js";
+import { pickContentOption, promptForTexts } from "../dialogs/content-picker.js";
 import {
-	canCreateRelationshipMap, createRelationshipMap, listRelationshipMaps, resolveMapBoard,
+	canCreateRelationshipMap, createMapPage, createRelationshipMap, listRelationshipMaps, resolveMapBoard,
 } from "./relmap-doc.js";
 import { defaultBoard } from "./relmap-last.js";
 
@@ -18,14 +19,19 @@ export const NEW_MAP_CHOICE = "__new__";
 let asking = null;
 
 /**
- * Ask what the new map is called, and make it.
+ * Ask what the new collection and its first map are called, and make both.
  *
- * ⚠ THE BOX OPENS EMPTY. The example names are the PLACEHOLDER, which is a hint about what belongs in
- * the field rather than a value that gets saved by pressing Enter.
+ * ⚠ ONE WINDOW, TWO NAMES (user, 2026-10-04). A collection used to be named on its own and arrive
+ * empty, and the window then asked for a map's name again: in a new world that read as the first
+ * answer having gone nowhere. The collection is made first and the map inside it straight after, so
+ * a window opened on the result lands on that map.
  *
- * AN EMPTY NAME IS TAKEN, NOT REFUSED, exactly as `mapPageName` takes an empty board name: it falls
- * back to "Relationship Map", and the map can be renamed from its own window. A dialog that rejects
- * the save over a blank field has to explain itself, for a mistake that costs one rename to fix.
+ * ⚠ THE BOXES OPEN EMPTY. The example names are the PLACEHOLDERS, which are a hint about what belongs
+ * in each field rather than a value that gets saved by pressing Enter.
+ *
+ * AN EMPTY NAME IS TAKEN, NOT REFUSED, in either box: the document layer names a blank collection
+ * "Relationship Map" and a blank map "New map", and both can be renamed from the window. A dialog that
+ * rejects the save over a blank field has to explain itself, for a mistake that costs one rename to fix.
  *
  * ⚠ ONE BOX PER PRESS, HOWEVER MANY PRESSES. The box is not modal, so two clicks on the sidebar
  * button in a world with no collection yet would each open one, and each could make a collection. A
@@ -33,8 +39,8 @@ let asking = null;
  * first press's answer. (Both presses then open that collection, which utils/open-or-focus.js turns
  * into one window.)
  *
- * @returns {Promise<JournalEntry|null>}  the new map, or null when the reader dismissed the box or
- *          may not make one.
+ * @returns {Promise<JournalEntry|null>}  the new collection, or null when the reader dismissed the
+ *          box or may not make one.
  */
 export function promptForNewRelationshipMap() {
 	// Asked BEFORE the box opens, not only inside `createRelationshipMap`, so a reader who may not
@@ -46,15 +52,40 @@ export function promptForNewRelationshipMap() {
 
 /** The box itself, and the create behind it. See `promptForNewRelationshipMap`. */
 async function askForNewRelationshipMap() {
-	const name = await promptForText({
+	const names = await promptForTexts({
 		title: localize("RELMAP.maps.newTitle"),
+		icon: "fa-solid fa-plus",
 		buttonLabel: localize("RELMAP.maps.newGo"),
-		placeholder: localize("RELMAP.maps.namePlaceholder"),
+		lead: localize("RELMAP.maps.newLead"),
+		fields: [
+			{
+				name: "collection",
+				label: localize("RELMAP.maps.nameLabel"),
+				placeholder: localize("RELMAP.maps.namePlaceholder"),
+			},
+			{
+				name: "map",
+				label: localize("RELMAP.pages.firstLabel"),
+				placeholder: localize("RELMAP.pages.placeholder"),
+			},
+		],
 	});
-	// null is the dismissal and "" is a name nobody typed; only the first means "never mind". The blank
-	// is named by `createRelationshipMap`, through the same rule a rename keeps.
-	if (name === null) return null;
-	return await createRelationshipMap(name);
+	// null is the dismissal and "" is a name nobody typed; only the first means "never mind". A blank
+	// is named by the document layer, through the same rule a rename keeps.
+	if (!names) return null;
+	const entry = await createRelationshipMap(names.collection);
+	if (!entry) return null;
+	// ⚠ THE COLLECTION STANDS EITHER WAY. If its first map cannot be made, refused or thrown, the reader
+	// is told so and the window still opens on the empty collection, where New map tries again. A throw
+	// let through here would leave the collection made and no window to find it in.
+	let page = null;
+	try {
+		page = await createMapPage(entry, names.map);
+	} catch (err) {
+		console.error("Relationship Map | the first map of a new collection could not be made", err);
+	}
+	if (!page) ui.notifications?.warn?.(localize("RELMAP.pages.firstFailed"));
+	return entry;
 }
 
 /**
@@ -107,6 +138,7 @@ export async function chooseRelationshipMap({ current = null } = {}) {
 	if (!rows.length) return null;
 	const pick = await pickContentOption({
 		title: localize("RELMAP.maps.chooseTitle"),
+		icon: "fa-solid fa-diagram-project",
 		options: rows,
 		buttonLabel: localize("RELMAP.maps.chooseGo"),
 		selected: current,
