@@ -39,7 +39,7 @@ Then enable **Relationship Map - by PWD** in your world's module settings.
 
 2. Press the **+** beside the map tabs to add another map to the collection.
 3. Drag actors from the **Actors** sidebar onto the map, or press **Add someone** under it.
-4. Drag from the small link handle on a portrait to another portrait to draw a line. Click the line to write on it and style it.
+4. Drag from the small link handle on a portrait to another portrait to draw a line, or Alt-drag from anywhere on the portrait. To draw several, press **Draw lines** under the map: then drag from one portrait to another, or click one and then the other. Click a line to write on it and style it.
 5. Right-click a portrait to take that person off the map. Double-click it to open their sheet. Shift-click portraits, or Shift-drag a box on open paper, to select several and move them together.
 6. Press **Group** under the map to draw a named outline: with people selected it groups them at once, otherwise drag a box around the people to put in it. Click a group's name to rename, recolour or reshape it, or to put the selected people in or take them out.
 7. Use the strip of tabs above the map to add, rename, reorder, hide and delete maps. Use **Collections** on the window's title bar to switch collections or make another.
