@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+
+- Easier ways to draw a line. Hold Alt and drag from anywhere on a portrait to draw a line out of it instead of moving them. The portrait's tooltip says so.
+- Draw lines: a new button under the map that makes every portrait a handle. Drag from one person to another, or click one and then the other (Enter works too), to join them. The person picked gets a double ring and a line follows the pointer to whoever you click next. The button stays on for the next line, and on other maps too. Press it again or Escape to turn it off; Escape with somebody picked only lets them go.
+- The line you are dragging out starts at the edge of the portrait and stops at the edge of the person it is over, instead of running from the middle of the first face.
+- The link handle and the trash can on a portrait are bigger and easier to hit, and sit further out so a press on the face still moves the person. While they are hidden they no longer catch a press meant for a line or a neighbouring face.
+- Escape goes to the right thing when two things are waiting for it, such as a drag in one map window while a line is half picked in another.
+
 ## 1.1.1
 
 - Making a collection now names its first map too, in the same window, and the map window opens on that map. Before, a new collection arrived empty and you had to press New map and name a map again.
