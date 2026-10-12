@@ -31,7 +31,7 @@ import {
 	RELMAP_BOARD_ASPECT, RELMAP_BOARD_WIDTH, RELMAP_CAPTION_FLOOR_PX, RELMAP_CAPTION_PX,
 	RELMAP_HEAD_PX,
 	ROUTE_HEAD_PATH, ROUTE_HEAD_VIEWBOX,
-	boardBounds, boardMetrics,
+	bandPath, boardBounds, boardMetrics,
 	captionRoomPx, captionSize, clampReach, clearanceBow, curveWithGap, edgeArrowheads, edgeBow,
 	edgeCurve, edgeLabelAnchor, freeSpot, groupShapes, groupsInside, seatAlong, spreadLabels,
 } from "../utils/relmap-geometry.js";
@@ -229,6 +229,8 @@ const TOOLS = Object.freeze({
 	create: { needsEdit: true, needsActorCreate: true, run: app => app._createPerson() },
 	// A GROUP ROUND SOME PEOPLE: the selection at once, or a box drawn on the next drag. See `_groupTool`.
 	group: { needsEdit: true, run: app => app._groupTool() },
+	// DRAWING LINES FROM ANY FACE, not only the small handle on its rim. See `_lineTool`.
+	lines: { needsEdit: true, run: app => app._lineTool() },
 	// THE PAGE STRIP'S FOUR, and all four are edits: they make, show, rename and destroy a document.
 	// They are in this table rather than beside the strip's own click handler for the reason the table
 	// exists at all: a tool gated by where it happens to be written is a tool nobody can tell was gated
@@ -260,6 +262,16 @@ function inkMovedKey(chose, used, scope = "RELMAP") {
 function mayCreateActors() {
 	return globalThis.Actor?.canUserCreate?.(game.user) ?? !!game.user?.isGM;
 }
+
+/**
+ * The footer's tools that ARM the board rather than act at once, by the button's action, and the class
+ * the board wears meanwhile (its cursor). The group tool draws a box round people; "Draw lines" makes
+ * every face a handle. At most one is armed, in `_armedTool`; see `_arm`.
+ */
+const ARMED_CLASS = Object.freeze({
+	group: "is-drawing-group",
+	lines: "is-drawing-lines",
+});
 
 export class RelationshipMapWindow extends RelmapDialog {
 	constructor(entry, options = {}) {
@@ -367,13 +379,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._pendingPick = "";
 		// THE GROUPS. The bar a group raises, which group is lit by the pointer resting on it, which
 		// outline the bar is marked on, a group made a moment ago waiting for the repaint that will
-		// draw it (like `_pendingPick` for a line), and whether the group tool is armed to draw a box
-		// on the next drag. All this reader's own, none of it written anywhere.
+		// draw it (like `_pendingPick` for a line). All this reader's own, none of it written anywhere.
 		this._groupBar = null;
 		this._litGroup = null;
 		this._pickedGroupParts = [];
 		this._pendingGroupPick = "";
-		this._drawArmed = false;
+		// THE FOOTER TOOL THE BOARD IS ARMED WITH, if any: "group" to draw a box on the next drag, or
+		// "lines" to make every face a handle. One field, since both claim a plain press. See `_arm`.
+		this._armedTool = null;
 		// THE GEOMETRY THE MARKUP NOW ON SCREEN WAS BUILT FROM, kept for exactly one reason: the
 		// gap cut in each stroke has to be re-cut against the caption that actually painted, and
 		// that cannot be known until the caption is in a document. See `_fitGapsToPaint`.
@@ -678,6 +691,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// no i18n in it; see utils/relmap-group-bar.js.
 			groupLabel: localize("RELMAP.groups.tool"),
 			groupHint: localize("RELMAP.groups.toolHint"),
+			lineLabel: localize("RELMAP.lineTool"),
+			lineHint: localize("RELMAP.lineHint"),
 			groupBar: {
 				label: localize("RELMAP.groups.bar"),
 				name: localize("RELMAP.groups.name"),
@@ -1022,7 +1037,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// AND SELECTING SEVERAL, which is the same kind of gesture: a modifier on a click, with nothing
 		// on the board to suggest it until somebody says so.
 		const gesture = canEdit
-			? ` ${localize("RELMAP.removeGesture")} ${localize("RELMAP.selectGesture")}`
+			? ` ${localize("RELMAP.removeGesture")} ${localize("RELMAP.selectGesture")} ${localize("RELMAP.altGesture")}`
 			: "";
 		// ⚠ WITH A FULL STOP PUT IN WHERE THE SENTENCE BEFORE IT HAS NONE. Two of the three
 		// tooltips below end in one; the third is a bare name, and "The Miller Right-click for the
@@ -1262,6 +1277,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 
 		// Everything below points into the render being replaced.
 		this._surface?.destroy();
+		// A "Draw lines" pick outlives a render, as the selection does; read off the old board before it
+		// goes, and handed to the new one once it is wired.
+		const heldAim = this._teardownDrag?.heldAim?.() ?? null;
 		this._teardownDrag?.();
 		// ⚠ WRITTEN OUT BEFORE IT IS THROWN AWAY. A re-render is not a reason to lose a sentence
 		// somebody was in the middle of: `destroy` flushes nothing, so the flush is asked for here,
@@ -1306,7 +1324,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// AND SO IS ANY PLAIN PRESS ON OPEN PAPER WHILE THE GROUP TOOL IS ARMED: that press draws
 			// the group's box. Asked of `pressStartsDraw`, which the drag layer asks too.
 			yields: ev => (pressStartsBox(ev, { view, board })
-				|| (this._drawArmed && pressStartsDraw(ev, { view, board }))) && this.canEdit,
+				|| (this._armedTool === "group" && pressStartsDraw(ev, { view, board }))) && this.canEdit,
 			controls: BOARD_CONTROLS,
 			menus: BOARD_MENUS,
 			// A gentler wheel than a picture gets, because this board is arranged rather than
@@ -1403,16 +1421,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// to work and is silently thrown away. Moving somebody and taking them off are the same
 			// question on this board, which is the drag layer's own default for both.
 			canEdit: () => this.canEdit,
-			nodeAt: id => {
-				// An unwritten nudge is where the portrait actually is, so it answers first -- and then one
-				// written and not yet back from the server, which the document has not heard about either.
-				// Read off the document in that breath, the next arrow key started from where the portrait
-				// had been, and the walk jumped back a step. See `_writeNudge`.
-				if (this._pendingNudge.has(id)) return { ...this._pendingNudge.get(id) };
-				if (this._landingNudge?.has(id)) return { ...this._landingNudge.get(id) };
-				const node = readGraph(this.boardDoc).nodes[id];
-				return node ? { x: node.x, y: node.y } : null;
-			},
+			nodeAt: id => this._nodeAt(id),
 			onMove: (id, at) => this._moveNode(id, at),
 			onNudge: (id, at) => this._nudgeNode(id, at),
 			// ⚠ THE CAPTION'S FOUR HANDLERS, AND THE GEOMETRY IS ALL ON THIS SIDE OF THEM. The drag
@@ -1442,6 +1451,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 			onGroupNudge: moves => this._nudgeNodes(moves),
 			onLink: (a, b) => this._createLink(a, b),
 			onLinkFrom: id => this._linkFrom(id),
+			// THE HALF-DRAWN LINE, trimmed to the rims here because the radius is this window's.
+			linkBand: (from, at, to) => this._linkBand(from, at, to),
+			// THE "DRAW LINES" TOOL: every face a handle while it is armed. See `_lineTool`.
+			linking: () => this._armedTool === "lines",
+			onLinkPicked: id => { if (id) this._announce(format("RELMAP.linePicked", { name: this._nameOf(readGraph(this.boardDoc), id) })); },
+			onStopLinking: () => this._arm(null),
 			onOpen: id => this._openPerson(id),
 			// A LINE TAKEN HOLD OF, which is the bar and no longer a window: everything a line
 			// says is on the bar, and rubbing it out is the last press on it.
@@ -1459,7 +1474,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 				returnTo: from ? () => this._groupNameEl(id) : null, focusName: keyboard,
 			}),
 			onRemoveGroup: id => this._dropGroup(id),
-			drawing: () => this._drawArmed,
+			drawing: () => this._armedTool === "group",
 			onDrawn: ids => this._drewGroup(ids),
 			onRemove: id => this._removePerson(id),
 			// THE MOUSE'S ROUTE TO THAT, and until now there was none: taking somebody off was the
@@ -1469,19 +1484,23 @@ export class RelationshipMapWindow extends RelmapDialog {
 			onArm: id => this._armRemove(id),
 		});
 
+		this._teardownDrag?.resumeAim?.(heldAim);
+
 		// The drag layer owns the board; these are the window's own chrome.
 		root.querySelectorAll("[data-relmap-action]").forEach(button => {
 			button.addEventListener("click", ev => this._onToolClick(ev));
 		});
-		// ESCAPE ON THE GROUP TOOL ITSELF STANDS IT DOWN. The board's own Escape (relmap-drag.js) is
-		// heard on the board only, and right after arming the tool the focus is still on this button:
+		// ESCAPE ON AN ARMED TOOL ITSELF STANDS IT DOWN. The board's own Escape (relmap-drag.js) is
+		// heard on the board only, and right after arming the tool the focus is still on its button:
 		// left to bubble, the key reaches core, which closes the whole window instead.
-		root.querySelector("[data-relmap-action='group']")?.addEventListener("keydown", ev => {
-			if (ev.key !== "Escape" || !this._drawArmed) return;
-			ev.preventDefault();
-			ev.stopPropagation();
-			this._armDraw(false);
-		});
+		for (const action of Object.keys(ARMED_CLASS)) {
+			root.querySelector(`[data-relmap-action='${action}']`)?.addEventListener("keydown", ev => {
+				if (ev.key !== "Escape" || this._armedTool !== action) return;
+				ev.preventDefault();
+				ev.stopPropagation();
+				this._arm(null);
+			});
+		}
 
 		// WHICH BOARD OF THIS MAP IS UP. Delegated from the strip rather than bound per tab,
 		// because `_paintPages` replaces every tab in it whenever somebody at the far end of the
@@ -1524,7 +1543,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// What this reader can take back lives on their own machine, not in the markup a render was
 		// built from, and a fresh bar comes up with both buttons enabled until it is told otherwise.
 		this._paintHistory();
-		this._paintGroupTool();
+		this._paintTools();
 		if (this._lit) this._lightPerson(this._lit);
 		if (this._litGroup) this._lightGroup(this._litGroup);
 		// The selection outlives a render (a resize, say), and its marks do not. Except onto a board
@@ -1800,6 +1819,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// off the board: a selection naming somebody who is not there would carry a ghost along
 		// with every group drag.
 		this._paintSelection();
+		// AND THE "DRAW LINES" PICK, its ring and its band, for the same reason again. The drag layer
+		// holds who is picked, so it is the one to put them back.
+		this._teardownDrag?.repaintAim?.();
 		// AND SO IS THE MARK ON WHATEVER THE READER IS HOLDING, a line or a group's outline, for the
 		// same reason and with one more: a bar itself survives (it is outside the board), so without
 		// this it would go on floating over a picture with nothing on it saying what it belongs to.
@@ -3778,7 +3800,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		for (const bar of this._bars) bar.flush();
 		this._groupBar?.close();
 		this._pendingGroupPick = "";
-		if (this._drawArmed) this._armDraw(false);
+		this._standDownForAnotherBoard();
 	}
 
 	/**
@@ -3795,7 +3817,18 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._preview = null;
 		for (const bar of this._bars) bar.discard();
 		this._pendingGroupPick = "";
-		if (this._drawArmed) this._armDraw(false);
+		this._standDownForAnotherBoard();
+	}
+
+	/**
+	 * What an armed tool leaves behind when the board changes under it. The group tool stands down,
+	 * since the box it was about to draw belongs to the board being left. "Draw lines" STAYS ARMED --
+	 * it is meant for several lines in a row, and a table may well go on drawing them on the next
+	 * page -- and only its pick is let go, because the person picked is on the board being left.
+	 */
+	_standDownForAnotherBoard() {
+		if (this._armedTool === "group") this._arm(null);
+		else this._teardownDrag?.stopAiming?.();
 	}
 
 	/**
@@ -3863,6 +3896,43 @@ export class RelationshipMapWindow extends RelmapDialog {
 			? localize("RELMAP.history.moved")
 			: format("RELMAP.history.movedMany", { count: ids.length });
 		return this._write(patch, { label, coalesce, onto: { kind: "nodes", ids }, graph });
+	}
+
+	/**
+	 * Where a portrait is RIGHT NOW. An unwritten nudge is where the portrait actually is, so it
+	 * answers first -- and then one written and not yet back from the server, which the document has
+	 * not heard about either. Read off the document in that breath, the next arrow key started from
+	 * where the portrait had been, and the walk jumped back a step. See `_writeNudge`.
+	 *
+	 * `graph`, when the caller already read one this breath, saves normalising the board again.
+	 */
+	_nodeAt(id, graph = null) {
+		if (this._pendingNudge.has(id)) return { ...this._pendingNudge.get(id) };
+		if (this._landingNudge.has(id)) return { ...this._landingNudge.get(id) };
+		const node = (graph ?? readGraph(this.boardDoc)).nodes[id];
+		return node ? { x: node.x, y: node.y } : null;
+	}
+
+	/**
+	 * The half-drawn line out of `fromId`, as a `d`: from their RIM, not their centre, to the pointer
+	 * at `at`, or to the rim of `toId` once it is over them, which is where the line it becomes will
+	 * end. Asked once per painted frame of a link drag. See `bandPath`.
+	 */
+	_linkBand(fromId, at, toId = null) {
+		// The graph the board on screen was drawn from, for both ends: this runs every painted frame of
+		// the drag, and normalising the whole board each frame to read two positions is waste.
+		const graph = this._drawn?.graph ?? readGraph(this.boardDoc);
+		const from = this._nodeAt(fromId, graph);
+		if (!from) return "";
+		const r = this._drawn?.board?.r ?? this._boardSize(graph).r;
+		const to = toId ? this._nodeAt(toId, graph) : null;
+		return bandPath({
+			from: { left: from.x, top: from.y },
+			to: to ? { left: to.x, top: to.y } : at,
+			aspect: RELMAP_BOARD_ASPECT,
+			r,
+			rTo: to ? r : 0,
+		});
 	}
 
 	async _openPerson(id) {
@@ -4124,23 +4194,49 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * again while armed, it stands down. Escape stands it down too (relmap-drag.js).
 	 */
 	_groupTool() {
-		if (this._drawArmed) { this._armDraw(false); return; }
-		if (this._selected.length) { this._makeGroup(this._selected); return; }
-		this._armDraw(true);
+		if (this._armedTool === "group") { this._arm(null); return; }
+		if (this._selected.length) {
+			if (this._armedTool) this._arm(null);
+			this._makeGroup(this._selected);
+			return;
+		}
+		this._arm("group");
 		this._announce(localize("RELMAP.groups.drawHint"));
 	}
 
-	_armDraw(on) {
-		this._drawArmed = !!on;
-		this._paintGroupTool();
+	/**
+	 * THE "DRAW LINES" TOOL ON THE FOOTER ("more, easier ways to draw these lines").
+	 *
+	 * While it is armed every face is a handle: a drag from anywhere on one draws a line, and a click
+	 * picks somebody and a click on somebody else joins them (relmap-drag.js). It STAYS armed after a
+	 * line, so a table can draw several in a row; pressed again, or Escape on the board, puts it down.
+	 */
+	_lineTool() {
+		if (this._armedTool === "lines") { this._arm(null); return; }
+		this._arm("lines");
+		this._announce(localize("RELMAP.lineHint"));
 	}
 
-	/** The tool's pressed state, and the board's cursor while it is armed. */
-	_paintGroupTool() {
+	/**
+	 * Arm the board with one footer tool (an `ARMED_CLASS` key), or stand it down with null. Arming one
+	 * stands down the other, since both claim a plain press; a line half-picked goes with its tool.
+	 */
+	_arm(action) {
+		this._armedTool = action;
+		if (action !== "lines") this._teardownDrag?.stopAiming?.();
+		this._paintTools();
+	}
+
+	/** Each armable tool's pressed state, and the board's cursor while one is armed. */
+	_paintTools() {
 		const root = this._root;
 		if (!root) return;
-		root.querySelector?.("[data-relmap-action='group']")?.setAttribute?.("aria-pressed", this._drawArmed ? "true" : "false");
-		root.querySelector?.(".relmap")?.classList?.toggle("is-drawing-group", this._drawArmed);
+		const board = root.querySelector?.(".relmap");
+		for (const [action, boardClass] of Object.entries(ARMED_CLASS)) {
+			const on = this._armedTool === action;
+			root.querySelector?.(`[data-relmap-action='${action}']`)?.setAttribute?.("aria-pressed", on ? "true" : "false");
+			board?.classList?.toggle(boardClass, on);
+		}
 	}
 
 	/**
@@ -4148,7 +4244,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * draw was abandoned. Either way the tool stands down; one box is one group.
 	 */
 	_drewGroup(ids) {
-		this._armDraw(false);
+		this._arm(null);
 		if (!ids) return;
 		if (!ids.length) {
 			this._announce(localize("RELMAP.groups.empty"));

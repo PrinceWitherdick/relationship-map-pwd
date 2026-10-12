@@ -834,12 +834,23 @@
       {{!-- DRAWING A GROUP ROUND SOME PEOPLE: "The hunters", "The elders". With people selected it
             groups them at once; with nobody selected it arms the board, and the next drag on open
             paper draws the box. Pressed again while armed, it stands down. `aria-pressed` says which,
-            written by `_paintGroupTool`. --}}
+            written by `_paintTools`. --}}
       <button type="button" class="relmap-tool relmap-grouptool"
               data-relmap-action="group" aria-pressed="false"
               data-tooltip="{{groupHint}}" aria-label="{{groupHint}}">
         <i class="fas fa-object-group"></i>
         <span>{{groupLabel}}</span>
+      </button>
+
+      {{!-- DRAWING LINES FROM ANY FACE, not only the small handle on its rim. While it is pressed a
+            drag from one person to another draws a line, and so do a click on one and a click on
+            the other. It stays pressed for the next line; pressed again, or Escape, puts it down.
+            `aria-pressed` is written by `_paintTools`. --}}
+      <button type="button" class="relmap-tool relmap-linetool"
+              data-relmap-action="lines" aria-pressed="false"
+              data-tooltip="{{lineHint}}" aria-label="{{lineHint}}">
+        <i class="fas fa-bezier-curve"></i>
+        <span>{{lineLabel}}</span>
       </button>
 
       {{!-- MAKING SOMEBODY NEW AND PUTTING THEM ON, for whoever may create actors, players included

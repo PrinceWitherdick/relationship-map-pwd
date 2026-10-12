@@ -1156,3 +1156,336 @@ describe("a caption dragged along its own line", () => {
 		teardown();
 	});
 });
+
+// ── More ways to draw a line ─────────────────────────────
+//
+// "The relationship map's dotted-line when drawing a relationship line shouldn't go inside the first
+// token at all... It'd be nice if we have more, easier ways to draw these lines too. The little chain
+// circle is kind of small and hard to click." The band is trimmed by the window (`linkBand`); the
+// handle is no longer the only way in: Alt on a face, and the "Draw lines" tool.
+describe("drawing a line without the handle", () => {
+	let board;
+	beforeEach(() => {
+		board = pointerBoard();
+		board.view.setPointerCapture = vi.fn();
+		board.view.releasePointerCapture = vi.fn();
+	});
+	afterEach(() => board.destroy());
+
+	const rubber = () => board.board.children.find(el => el.attrs.class === "relmap-rubber") ?? null;
+	const band = () => rubber()?.children[0]?.attrs.d ?? null;
+	const sources = () => Object.entries(board.portraits)
+		.filter(([, el]) => el.classList.contains("is-link-source"))
+		.map(([id]) => id);
+
+	it("draws the band the window trims, not one from the centre of the face", () => {
+		const linkBand = vi.fn(() => "M 1,2 L 3,4");
+		const { teardown } = wire(board, { linkBand });
+		board.setHits([board.portraits.n2.face]);
+		board.view.emit("pointerdown", board.portraits.n1.handle, { clientX: 0, clientY: 0 });
+		board.view.emit("pointermove", board.portraits.n1.handle, { clientX: 40, clientY: 0 });
+		board.flush();
+		expect(band()).toBe("M 1,2 L 3,4");
+		// From whom, to where the pointer is, and over whom: so the band can stop at their rim.
+		expect(linkBand).toHaveBeenLastCalledWith("n1", { left: 4, top: 0 }, "n2");
+		teardown();
+	});
+
+	it("draws a line out of a face dragged with Alt held, and moves nobody", () => {
+		const { handlers, teardown } = wire(board);
+		board.setHits([board.portraits.n2.face]);
+		board.view.emit("pointerdown", board.portraits.n1.face, { clientX: 0, clientY: 0, altKey: true });
+		board.view.emit("pointermove", board.portraits.n1.face, { clientX: 40, clientY: 0 });
+		board.flush();
+		expect(board.portraits.n1.style["--relmap-drag-x"]).toBeUndefined();
+		board.view.emit("pointerup", board.portraits.n1.face, { clientX: 40, clientY: 0 });
+		expect(handlers.onLink).toHaveBeenCalledWith("n1", "n2");
+		expect(handlers.onMove).not.toHaveBeenCalled();
+		teardown();
+	});
+
+	// A line is not a move: a board that seats its own people still takes one from the handle, and
+	// so from Alt on a face.
+	it("lets Alt draw a line on a board whose portraits may not be moved", () => {
+		const { handlers, teardown } = wire(board, { canMove: () => false });
+		board.setHits([board.portraits.n2.face]);
+		board.view.emit("pointerdown", board.portraits.n1.face, { clientX: 0, clientY: 0, altKey: true });
+		board.view.emit("pointermove", board.portraits.n1.face, { clientX: 40, clientY: 0 });
+		board.flush();
+		board.view.emit("pointerup", board.portraits.n1.face, { clientX: 40, clientY: 0 });
+		expect(handlers.onLink).toHaveBeenCalledWith("n1", "n2");
+		teardown();
+	});
+
+	describe("with the Draw lines tool armed", () => {
+		const armed = (over = {}) => wire(board, { linking: () => true, onLinkPicked: vi.fn(), onStopLinking: vi.fn(), ...over });
+
+		it("draws a line from anywhere on a face dragged to somebody", () => {
+			const { handlers, teardown } = armed();
+			board.setHits([board.portraits.n2.face]);
+			press(board, board.portraits.n1.face, { to: [40, 0] });
+			expect(handlers.onLink).toHaveBeenCalledWith("n1", "n2");
+			expect(handlers.onMove).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		it("joins one person to another with a click on each", () => {
+			const { handlers, teardown } = armed();
+			press(board, board.portraits.n1.face);
+			expect(sources()).toEqual(["n1"]);
+			expect(handlers.onLinkPicked).toHaveBeenLastCalledWith("n1");
+			press(board, board.portraits.n2.face);
+			expect(handlers.onLink).toHaveBeenCalledTimes(1);
+			expect(handlers.onLink).toHaveBeenCalledWith("n1", "n2");
+			expect(sources()).toEqual([]);
+			expect(handlers.onLinkPicked).toHaveBeenLastCalledWith(null);
+			expect(handlers.onOpen).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		it("follows the pointer from the person picked, with no button held", () => {
+			const linkBand = vi.fn(() => "M 5,5 L 9,9");
+			const { teardown } = armed({ linkBand });
+			press(board, board.portraits.n1.face);
+			board.view.emit("pointermove", board.board, { clientX: 70, clientY: 20 });
+			board.flush();
+			expect(band()).toBe("M 5,5 L 9,9");
+			expect(linkBand).toHaveBeenLastCalledWith("n1", { left: 7, top: 2 }, null);
+			teardown();
+			expect(rubber()).toBeNull();
+		});
+
+		const LET_GO = [
+			["the same face again", b => press(b, b.portraits.n1.face)],
+			["bare paper", b => press(b, b.board)],
+		];
+		for (const [how, letGo] of LET_GO) {
+			it(`lets the pick go on a click on ${how}, drawing nothing`, () => {
+				const { handlers, teardown } = armed();
+				press(board, board.portraits.n1.face);
+				board.view.emit("pointermove", board.board, { clientX: 70, clientY: 20 });
+				board.flush();
+				letGo(board);
+				expect(sources()).toEqual([]);
+				expect(rubber()).toBeNull();
+				expect(handlers.onLink).not.toHaveBeenCalled();
+				teardown();
+			});
+		}
+
+		it("lets the pick go when the window stands the tool down", () => {
+			const { teardown } = armed();
+			press(board, board.portraits.n1.face);
+			teardown.stopAiming();
+			expect(sources()).toEqual([]);
+			teardown();
+		});
+
+		// A REPAINT REPLACES THE BOARD'S CONTENTS, mark and band with them. From the keyboard there is
+		// no pointer move to bring them back, so the window asks for them after its repaint.
+		it("marks a keyboard pick again after the board is repainted", () => {
+			const { teardown } = armed();
+			keyPress(board, board.portraits.n1.face);
+			board.portraits.n1.classList.remove("is-link-source");
+			teardown.repaintAim();
+			board.flush();
+			expect(sources()).toEqual(["n1"]);
+			teardown();
+		});
+
+		it("puts the band back after a repaint, without waiting for the pointer to move", () => {
+			const linkBand = vi.fn(() => "M 5,5 L 9,9");
+			const { teardown } = armed({ linkBand });
+			press(board, board.portraits.n1.face);
+			board.view.emit("pointermove", board.board, { clientX: 70, clientY: 20 });
+			board.flush();
+			rubber().remove();
+			board.portraits.n1.classList.remove("is-link-source");
+			teardown.repaintAim();
+			board.flush();
+			expect(band()).toBe("M 5,5 L 9,9");
+			expect(sources()).toEqual(["n1"]);
+			teardown();
+		});
+
+		it("asks for nothing after a repaint with nobody picked", () => {
+			const linkBand = vi.fn(() => "M 5,5 L 9,9");
+			const { teardown } = armed({ linkBand });
+			teardown.repaintAim();
+			board.flush();
+			expect(rubber()).toBeNull();
+			expect(linkBand).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		it("puts a pick down once the tool is no longer armed", () => {
+			let on = true;
+			const { handlers, teardown } = armed({ linking: () => on });
+			press(board, board.portraits.n1.face);
+			on = false;
+			board.view.emit("pointermove", board.board, { clientX: 70, clientY: 20 });
+			board.flush();
+			expect(sources()).toEqual([]);
+			press(board, board.portraits.n2.face);
+			expect(handlers.onLink).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		// THE KEYBOARD'S WAY, for the reader who does not drag: Enter on one face, then on another.
+		it("joins two people with Enter on each, and opens no sheet", () => {
+			const { handlers, teardown } = armed();
+			keyPress(board, board.portraits.n1.face);
+			keyPress(board, board.portraits.n2.face);
+			expect(handlers.onLink).toHaveBeenCalledWith("n1", "n2");
+			expect(handlers.onOpen).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		it("stands the tool down on Escape from the board when nobody is picked", () => {
+			const { handlers, teardown } = armed();
+			const ev = board.view.emit("keydown", board.board, { key: "Escape" });
+			expect(handlers.onStopLinking).toHaveBeenCalledTimes(1);
+			expect(ev.propagationStopped).toBe(true);
+			teardown();
+		});
+
+		it("still selects with Shift held", () => {
+			const onSelect = vi.fn();
+			const { handlers, teardown } = armed({ onSelect, selected: () => [] });
+			board.view.emit("click", board.portraits.n1.face, { detail: 1, shiftKey: true });
+			expect(onSelect).toHaveBeenCalledWith(["n1"], { final: true });
+			expect(sources()).toEqual([]);
+			expect(handlers.onLink).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		it("does nothing on a board the reader may not edit", () => {
+			const { handlers, teardown } = armed({ canEdit: () => false });
+			press(board, board.portraits.n1.face);
+			press(board, board.portraits.n2.face);
+			expect(sources()).toEqual([]);
+			expect(handlers.onLink).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		// The name under a portrait is a target for a line dragged onto it (`nodeUnder`), so a click on
+		// it has to be one too. Asked of the face alone, it fell through to the paper and let go.
+		it("draws the line on a click on the name under somebody's portrait", () => {
+			const { handlers, teardown } = armed();
+			press(board, board.portraits.n1.face);
+			press(board, board.portraits.n2.name);
+			expect(handlers.onLink).toHaveBeenCalledWith("n1", "n2");
+			expect(handlers.onPickNone).not.toHaveBeenCalled();
+			expect(sources()).toEqual([]);
+			teardown();
+		});
+
+		// THE SECOND CLICK MADE WITH A HAND THAT MOVES, past the lift threshold. Taken as a drag from
+		// the face pressed, it threw the pick away and drew nothing.
+		it("draws from the pick when the second click wanders into a drag", () => {
+			const { handlers, teardown } = armed();
+			press(board, board.portraits.n1.face);
+			board.setHits([board.portraits.n2.face]);
+			press(board, board.portraits.n2.face, { to: [5, 0] });
+			expect(handlers.onLink).toHaveBeenCalledTimes(1);
+			expect(handlers.onLink).toHaveBeenCalledWith("n1", "n2");
+			expect(handlers.onMove).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		it("lets the pick go when a handle's picker is opened instead", () => {
+			const { handlers, teardown } = armed();
+			press(board, board.portraits.n1.face);
+			press(board, board.portraits.n2.handle);
+			expect(handlers.onLinkFrom).toHaveBeenCalledWith("n2");
+			expect(sources()).toEqual([]);
+			expect(handlers.onLinkPicked).toHaveBeenLastCalledWith(null);
+			expect(handlers.onLink).not.toHaveBeenCalled();
+			teardown();
+		});
+
+		it("lets the pick go when a line is taken hold of instead", () => {
+			const { handlers, teardown } = armed();
+			press(board, board.portraits.n1.face);
+			press(board, board.strokes.e1.hit);
+			expect(handlers.onPickEdge).toHaveBeenCalled();
+			expect(sources()).toEqual([]);
+			teardown();
+		});
+
+		// THE PAGE'S ONE ESCAPE WATCHER, on `window`, which this file otherwise never installs: wired
+		// lazily on the first gesture that finds one, so this test is the one that wires it.
+		it("leaves an Escape pressed in a bar to the bar, and takes one pressed on the board", () => {
+			let keydown = null;
+			globalThis.window = { addEventListener: (type, fn) => { if (type === "keydown") keydown = fn; } };
+			const escape = target => {
+				const ev = { key: "Escape", target, stopped: false, preventDefault() {}, stopPropagation() { ev.stopped = true; } };
+				keydown?.(ev);
+				return ev;
+			};
+			try {
+				const { teardown } = armed();
+				press(board, board.portraits.n1.face);
+				expect(escape(board.tiebar).stopped).toBe(false);
+				expect(sources()).toEqual(["n1"]);
+				expect(escape(board.board).stopped).toBe(true);
+				expect(sources()).toEqual([]);
+				teardown();
+			} finally {
+				delete globalThis.window;
+			}
+		});
+
+		// A FULL RE-RENDER WIRES A NEW BOARD, and the pick is carried across like the selection is.
+		it("carries a pick from one wiring of the board to the next, without announcing it again", () => {
+			const first = armed();
+			press(board, board.portraits.n1.face);
+			const held = first.teardown.heldAim();
+			first.teardown();
+			const next = pointerBoard();
+			try {
+				const { handlers, teardown } = wire(next, { linking: () => true, onLinkPicked: vi.fn() });
+				teardown.resumeAim(held);
+				expect(next.portraits.n1.classList.contains("is-link-source")).toBe(true);
+				expect(handlers.onLinkPicked).not.toHaveBeenCalled();
+				press(next, next.portraits.n2.face);
+				expect(handlers.onLink).toHaveBeenCalledWith("n1", "n2");
+				teardown();
+			} finally {
+				next.destroy();
+			}
+		});
+
+		it("carries no pick onto a board that no longer has the person picked", () => {
+			const first = armed();
+			press(board, board.portraits.n1.face);
+			const held = first.teardown.heldAim();
+			first.teardown();
+			const next = pointerBoard({ nodes: ["n2"] });
+			try {
+				const { handlers, teardown } = wire(next, { linking: () => true, onLinkPicked: vi.fn() });
+				teardown.resumeAim(held);
+				expect(teardown.heldAim()).toBeNull();
+				press(next, next.portraits.n2.face);
+				expect(handlers.onLink).not.toHaveBeenCalled();
+				expect(handlers.onLinkPicked).toHaveBeenLastCalledWith("n2");
+				teardown();
+			} finally {
+				next.destroy();
+			}
+		});
+	});
+
+	// A window asks these of whatever it was handed, including the teardown of a board that found
+	// nothing to wire on.
+	it("answers the aim's methods on a window with no board to wire", () => {
+		const teardown = wireRelmapDrag({ querySelector: () => null }, {});
+		expect(() => {
+			teardown.repaintAim();
+			teardown.stopAiming();
+			teardown.resumeAim({ id: "n1" });
+			teardown();
+		}).not.toThrow();
+		expect(teardown.heldAim()).toBeNull();
+	});
+});

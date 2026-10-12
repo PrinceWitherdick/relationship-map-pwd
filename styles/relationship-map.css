@@ -1807,6 +1807,23 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
 .relmap-groupbar .relmap-tiebar-btn[hidden] { display: none; }
 
+/* THE "DRAW LINES" TOOL IS ARMED: every face draws a line rather than moving, so it stops looking
+   like something to grab. The button wears the shared pressed look (`.relmap-tool[aria-pressed]`). */
+.relmap.is-drawing-lines:not(.is-readonly) .relmap-face { cursor: crosshair; }
+
+/* WHO THE TOOL'S FIRST CLICK PICKED to draw from, while the band follows the pointer to somebody else.
+   A DOUBLE RING, so it is told from the single green ring of the person the line would land on
+   (`is-link-target`) by its shape and not only its colour, and from the selection's dashed outline
+   the same way. A box-shadow, for the reason that ring gives: nothing under the pointer may move. */
+.relmap-node.is-link-source .relmap-face {
+	box-shadow:
+		0 0 0 2px var(--relmap-accent),
+		0 0 0 4px var(--relmap-page),
+		0 0 0 6px var(--relmap-accent);
+}
+
+.relmap-node.is-link-source .relmap-name { font-weight: 700; }
+
 /* ── The people ───────────────────────────────────────────────────────────────
    A round portrait, a name under it, and a handle on the rim. Positioned by its CENTRE, which
    is what the geometry trims its lines to. */

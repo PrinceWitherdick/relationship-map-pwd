@@ -1298,7 +1298,7 @@ describe("what a portrait says when it is rested on", () => {
 	// one. The two tooltips that already end in a full stop must not collect a second.
 	it("puts a full stop between the two, and only where there is not one already", () => {
 		expect(tooltips().nobody).toBe(
-			"The Miller. Right-click to see the delete button. Shift-click to select several people and move them together.",
+			"The Miller. Right-click to see the delete button. Shift-click to select several people and move them together. Alt-drag to draw a line from them.",
 		);
 		expect(tooltips().elena).not.toContain("..");
 	});
@@ -1308,6 +1308,13 @@ describe("what a portrait says when it is rested on", () => {
 	it("names the Shift-click beside it, and only to a reader who can edit", () => {
 		expect(tooltips().elena).toContain("Shift-click");
 		expect(tooltips({ isOwner: false }).elena).not.toContain("Shift-click");
+	});
+
+	// AND THE ALT-DRAG THAT DRAWS A LINE OUT OF A FACE, the same kind of hidden
+	// gesture, named to the same readers.
+	it("names the Alt-drag beside it, and only to a reader who can edit", () => {
+		expect(tooltips().elena).toContain("Alt-drag");
+		expect(tooltips({ isOwner: false }).elena).not.toContain("Alt-drag");
 	});
 
 	// AND NOT ON A BOARD THIS READER MAY ONLY LOOK AT, where the press does nothing: the trash can
@@ -5131,24 +5138,41 @@ describe("groups on the map", () => {
 		const { app, root } = windowFor(TWO_PEOPLE);
 		const button = toolButton(root);
 		app._groupTool();
-		expect(app._drawArmed).toBe(true);
+		expect(app._armedTool).toBe("group");
 		expect(button.attrs["aria-pressed"]).toBe("true");
 		app._groupTool();
-		expect(app._drawArmed).toBe(false);
+		expect(app._armedTool).toBe(null);
 		expect(button.attrs["aria-pressed"]).toBe("false");
 	});
 
 	it("makes nothing from an empty box or an abandoned one, and stands the tool down", () => {
 		const { app, entry, live } = windowFor(TWO_PEOPLE);
-		app._drawArmed = true;
+		app._armedTool = "group";
 		app._drewGroup(null);
-		expect(app._drawArmed).toBe(false);
+		expect(app._armedTool).toBe(null);
 		expect(live.textContent ?? "").toBe("");
-		app._drawArmed = true;
+		app._armedTool = "group";
 		app._drewGroup([]);
-		expect(app._drawArmed).toBe(false);
+		expect(app._armedTool).toBe(null);
 		expect(live.textContent).toBe(TABLE.localize("RELMAP.groups.empty"));
 		expect(entry.updates).toEqual([]);
+	});
+
+	// "Draw lines" is for several lines in a row, and a table may go on drawing them on the next page:
+	// only the pick, whose person is on the board being left, goes. The group tool's box goes with it.
+	it("keeps Draw lines armed across a change of board, letting only its pick go", () => {
+		const { app } = windowFor(TWO_PEOPLE);
+		const stopAiming = vi.fn();
+		app._teardownDrag = Object.assign(() => {}, { stopAiming });
+		app._armedTool = "lines";
+		app._leaveBoard();
+		expect(app._armedTool).toBe("lines");
+		expect(stopAiming).toHaveBeenCalled();
+		app._dropUnwritten();
+		expect(app._armedTool).toBe("lines");
+		app._armedTool = "group";
+		app._leaveBoard();
+		expect(app._armedTool).toBe(null);
 	});
 
 	it("puts the selected into a group and takes them out again, a step each", async () => {
@@ -5259,6 +5283,27 @@ describe("groups on the map", () => {
 		expect(id).toBe("hunt");
 		expect(opts.focusName).toBe(true);
 		expect(typeof opts.returnTo).toBe("function");
+	});
+
+	// THE "DRAW LINES" PICK'S RING AND BAND go with the board's contents, like the selection's marks;
+	// the drag layer holds the pick, so the repaint hands it the job of putting them back.
+	it("has the drag layer put a line pick back on the board it repaints", async () => {
+		const { app } = windowFor(TWO_PEOPLE);
+		app._groupBar = { refresh: vi.fn(), selectionChanged: vi.fn(), close: vi.fn() };
+		app._tieBar = { refresh: vi.fn(), close: vi.fn() };
+		const repaintAim = vi.fn();
+		app._teardownDrag = Object.assign(() => {}, { repaintAim });
+		await app._repaintBoard();
+		expect(repaintAim).toHaveBeenCalledTimes(1);
+	});
+
+	it("repaints under a drag layer that carries none of the aim's methods", async () => {
+		const { app } = windowFor(TWO_PEOPLE);
+		app._groupBar = { refresh: vi.fn(), selectionChanged: vi.fn(), close: vi.fn() };
+		app._tieBar = { refresh: vi.fn(), close: vi.fn() };
+		app._teardownDrag = () => {};
+		await expect(app._repaintBoard()).resolves.not.toThrow();
+		expect(() => app._arm("group")).not.toThrow();
 	});
 
 	it("puts the tie bar down when a group is taken hold of", () => {
