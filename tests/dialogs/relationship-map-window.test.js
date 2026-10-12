@@ -5244,6 +5244,171 @@ describe("groups on the map", () => {
 		expect(app._boundsOf(plan).top).toBeLessThanOrEqual(outline.top);
 	});
 
+	// A HELD GROUP'S CORNERS RESIZE IT. Each corner is one of the rectangle's the
+	// outline is drawn on, and the drop is one write of the room it leaves, one step of the undo.
+	it("offers four resize corners on the outline and keeps the room a corner is dragged out to", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		const context = app._boardContext(app._plan());
+		const { grips } = context.groups[0];
+		const rect = app._drawn.groups.get("hunt").outline.rect;
+		expect(grips.map(grip => grip.corner)).toEqual(["nw", "ne", "se", "sw"]);
+		expect(grips[2]).toMatchObject({ id: "hunt", x: Math.round(rect.right * 10) / 10, y: Math.round(rect.bottom * 10) / 10 });
+		const board = app._drawn.board;
+		// Forty pixels out to the right and twenty down, as board percentages.
+		const at = { left: ((rect.right + 40) / board.width) * 100, top: ((rect.bottom + 20) / board.height) * 100 };
+		await app._resizeGroup("hunt", "se", at);
+		expect(readGraph(page).groups.hunt.grow).toEqual({ left: 0, top: 0, right: 40, bottom: 20 });
+		expect(app._history.peekUndo().label).toBe(TABLE.localize("RELMAP.history.resizedGroup"));
+		await app._stepHistory("back");
+		expect(readGraph(page).groups.hunt.grow).toEqual({ left: 0, top: 0, right: 0, bottom: 0 });
+	});
+
+	it("offers no corners to a reader who may only look", () => {
+		const { app } = windowFor({
+			...TWO_PEOPLE, groups: { g: { name: "Two", members: { elena: true, stefan: true } } },
+		}, { isOwner: false });
+		expect(app._boardContext(app._plan()).groups[0].grips).toEqual([]);
+	});
+
+	// ⚠ SHRINKING PAST SOMEBODY TAKES THEM OUT ("allow the groups to be shrunk so that
+	// actors that were in the group to begin with might not be when they're done shrinking").
+	it("takes out whoever a corner is dragged in across, with the new shape, in one step", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app, live } = windowFor(null, { entry, pageId: "p1" });
+		app._boardContext(app._plan());
+		const rect = app._drawn.groups.get("hunt").outline.rect;
+		const board = app._drawn.board;
+		// The right side pulled in to halfway between Elena (20%) and Stefan (70%).
+		const at = { left: 45, top: (rect.bottom / board.height) * 100 };
+		const preview = app._resizeUnder("hunt", "se", at);
+		expect(preview).toMatchObject({ staying: ["elena"], leaving: ["stefan"] });
+		await app._resizeGroup("hunt", "se", at);
+		const after = readGraph(page).groups.hunt;
+		expect(after.members).toEqual({ elena: true });
+		expect(page.updates).toHaveLength(1);
+		expect(live.textContent).toBe(TABLE.format("RELMAP.groups.resizedOut", { count: 1 }));
+		// Measured against Elena alone now, so the repaint draws the right side where it was let go.
+		app._boardContext(app._plan());
+		expect(app._drawn.groups.get("hunt").outline.rect.right).toBeCloseTo(0.45 * board.width, 0);
+		expect(app._drawn.groups.get("hunt").outline.rect.left).toBeCloseTo(rect.left, 0);
+		await app._stepHistory("back");
+		const back = readGraph(page).groups.hunt;
+		expect(back.members).toEqual({ elena: true, stefan: true });
+		expect(back.grow).toEqual({ left: 0, top: 0, right: 0, bottom: 0 });
+	});
+
+	// ⚠ ONLY WHOEVER THE CORNER CROSSES. Somebody already outside a shrunk outline is not taken out by
+	// dragging the far corner OUT to make the group bigger.
+	it("takes nobody out of a group being made bigger", () => {
+		const { app } = windowFor({
+			...TWO_PEOPLE,
+			groups: { g: { name: "Two", members: { elena: true, stefan: true }, grow: { right: -400 } } },
+		});
+		app._boardContext(app._plan());
+		const { board } = app._drawn;
+		const rect = app._drawn.groups.get("g").outline.rect;
+		// Stefan's centre is already past the shrunk right side.
+		expect(rect.right).toBeLessThan(0.7 * board.width);
+		const at = { left: ((rect.left - 60) / board.width) * 100, top: ((rect.top - 60) / board.height) * 100 };
+		expect(app._resizeUnder("g", "nw", at)).toMatchObject({ staying: ["elena", "stefan"], leaving: [] });
+	});
+
+	// Worked out as the paint works it out, unnamed chips and all, or every group round an unnamed one
+	// jumped on the first frame of a resize.
+	it("starts a resize from the outline as painted, round an unnamed group inside it", () => {
+		const { app } = windowFor({
+			...TWO_PEOPLE,
+			groups: {
+				outer: { name: "Out", members: { elena: true, stefan: true } },
+				inner: { name: "", members: { elena: true } },
+			},
+		});
+		app._boardContext(app._plan());
+		expect(app._resizeState("outer").shapes.get("outer").outline.rect)
+			.toEqual(app._drawn.groups.get("outer").outline.rect);
+	});
+
+	// ⚠ FROM WHERE THE ARROW KEYS PUT PEOPLE, which the document has not heard about yet.
+	it("starts a resize from where the arrow keys have put the people", () => {
+		const { app } = windowFor({
+			...TWO_PEOPLE, groups: { g: { name: "Two", members: { elena: true, stefan: true } } },
+		});
+		app._boardContext(app._plan());
+		const painted = app._drawn.groups.get("g").outline.rect;
+		app._pendingNudge.set("stefan", { x: 50, y: 30 });
+		const state = app._resizeState("g");
+		expect(state.shapes.get("g").outline.rect.right).toBeLessThan(painted.right);
+	});
+
+	// THE CORNERS GO WITH THE OUTLINE when the group's people are carried, or a press on one would
+	// start a resize from where the group used to be.
+	it("carries the held group's corners with its people", () => {
+		const { app, board } = windowFor({
+			...TWO_PEOPLE, groups: { g: { name: "Two", members: { elena: true, stefan: true } } },
+		});
+		const grips = ["nw", "ne", "se", "sw"].map(corner => {
+			const grip = { dataset: { relmapGrip: "g", relmapCorner: corner }, attrs: {} };
+			grip.setAttribute = (name, value) => { grip.attrs[name] = value; };
+			return grip;
+		});
+		board.all = { "[data-relmap-gripset]": [{ dataset: { relmapGripset: "g" }, querySelectorAll: () => grips }] };
+		app._previewMoves({ elena: { x: 20, y: 70 }, stefan: { x: 70, y: 70 } });
+		expect(Number(grips[2].attrs.cy)).toBeGreaterThan(0.7 * app._plan().board.height);
+	});
+
+	it("lets the held group's corners go with the group", () => {
+		const { app } = windowFor(TWO_PEOPLE);
+		app._pickedGrips = [{ setAttribute: vi.fn() }];
+		app._gripR = 9;
+		app._paintPickedGroup("");
+		expect(app._pickedGrips).toEqual([]);
+		expect(app._gripR).toBeNull();
+	});
+
+	it("refuses a shrink that would leave nobody in the group, and says why", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app, live } = windowFor(null, { entry, pageId: "p1" });
+		app._boardContext(app._plan());
+		let rect = app._drawn.groups.get("hunt").outline.rect;
+		const board = app._drawn.board;
+		const pct = (x, y) => ({ left: (x / board.width) * 100, top: (y / board.height) * 100 });
+		// Grown well out to the bottom right, then shrunk from the top left into that empty corner.
+		await app._resizeGroup("hunt", "se", pct(rect.right + 400, rect.bottom + 400));
+		app._boardContext(app._plan());
+		rect = app._drawn.groups.get("hunt").outline.rect;
+		await app._resizeGroup("hunt", "nw", pct(rect.right, rect.bottom));
+		expect(page.updates).toHaveLength(1);
+		expect(readGraph(page).groups.hunt.members).toEqual({ elena: true, stefan: true });
+		expect(live.textContent).toBe(TABLE.localize("RELMAP.groups.resizeEmpty"));
+	});
+
+	// Shift: "make all sides of the shape equal - perfect square, perfect circle".
+	it("draws the group square with Shift held", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._boardContext(app._plan());
+		const rect = app._drawn.groups.get("hunt").outline.rect;
+		const board = app._drawn.board;
+		await app._resizeGroup("hunt", "se", {
+			left: ((rect.right + 10) / board.width) * 100, top: ((rect.bottom + 10) / board.height) * 100,
+		}, { square: true });
+		expect(readGraph(page).groups.hunt.members).toEqual({ elena: true, stefan: true });
+		app._boardContext(app._plan());
+		const square = app._drawn.groups.get("hunt").outline.rect;
+		expect(square.right - square.left).toBeCloseTo(square.bottom - square.top, 0);
+	});
+
+	it("writes nothing for a corner let go where it started", async () => {
+		const { entry, pages: [page] } = HUNTERS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		app._boardContext(app._plan());
+		const rect = app._drawn.groups.get("hunt").outline.rect;
+		const board = app._drawn.board;
+		await app._resizeGroup("hunt", "nw", { left: (rect.left / board.width) * 100, top: (rect.top / board.height) * 100 });
+		expect(page.updates).toHaveLength(0);
+	});
+
 	// ⚠ A NAME HALF TYPED IS NOT PAINTED OVER. The repaint waits for it as it waits for a caption.
 	it("holds a repaint back while a group's name is waiting to be written", () => {
 		const { app } = windowFor(TWO_PEOPLE);

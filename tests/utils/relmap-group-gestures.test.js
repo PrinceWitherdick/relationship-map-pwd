@@ -212,3 +212,95 @@ describe("drawing a group with the tool armed", () => {
 		}
 	});
 });
+
+// A HELD GROUP'S CORNERS RESIZE IT ("select it and then drag to increase or shrink
+// its size"). The layer reports where the pointer is; how much room that gives is the window's.
+describe("resizing a group by a corner", () => {
+	it("reports the pointer's place on the board every frame, and where it was let go", () => {
+		made = setUp({ onResizeMove: vi.fn(), onResize: vi.fn(), onResizeEnd: vi.fn() });
+		const { board, handlers } = made;
+		board.view.emit("pointerdown", board.outlines.g1.grip, { clientX: 0, clientY: 0 });
+		board.view.emit("pointermove", board.outlines.g1.grip, { clientX: 50, clientY: 20 });
+		board.flush();
+		expect(handlers.onResizeMove).toHaveBeenLastCalledWith("g1", "se", { left: 5, top: 2 }, { square: false });
+		board.view.emit("pointerup", board.outlines.g1.grip, { clientX: 80, clientY: 40 });
+		expect(handlers.onResizeEnd).toHaveBeenCalledWith("g1", false);
+		expect(handlers.onResize).toHaveBeenCalledWith("g1", "se", { left: 8, top: 4 }, { square: false });
+	});
+
+	// Shift: "make all sides of the shape equal - perfect square, perfect circle".
+	it("asks for equal sides while Shift is held, taken up or let go at any point of the drag", () => {
+		made = setUp({ onResizeMove: vi.fn(), onResize: vi.fn(), onResizeEnd: vi.fn() });
+		const { board, handlers } = made;
+		board.view.emit("pointerdown", board.outlines.g1.grip, { clientX: 0, clientY: 0 });
+		board.view.emit("pointermove", board.outlines.g1.grip, { clientX: 50, clientY: 20, shiftKey: true });
+		board.flush();
+		expect(handlers.onResizeMove).toHaveBeenLastCalledWith("g1", "se", { left: 5, top: 2 }, { square: true });
+		// Let go of with the hand still: no pointer event comes, the page's keyup does.
+		board.pageKey("keyup", "Shift");
+		board.flush();
+		expect(handlers.onResizeMove).toHaveBeenLastCalledWith("g1", "se", { left: 5, top: 2 }, { square: false });
+		board.pageKey("keydown", "Shift");
+		board.flush();
+		expect(handlers.onResizeMove).toHaveBeenLastCalledWith("g1", "se", { left: 5, top: 2 }, { square: true });
+		board.view.emit("pointerup", board.outlines.g1.grip, { clientX: 50, clientY: 20, shiftKey: true });
+		expect(handlers.onResize).toHaveBeenCalledWith("g1", "se", { left: 5, top: 2 }, { square: true });
+	});
+
+	it("leaves Shift alone when no resize is under way", () => {
+		made = setUp({ onResizeMove: vi.fn() });
+		made.board.pageKey("keydown", "Shift");
+		made.board.flush();
+		expect(made.handlers.onResizeMove).not.toHaveBeenCalled();
+	});
+
+	// A resize carries nobody: neither the group's move nor any one person's.
+	it("moves nobody, and does not let go of the group it belongs to", () => {
+		made = setUp({ onResizeMove: vi.fn(), onResize: vi.fn(), onResizeEnd: vi.fn() });
+		const { board, handlers } = made;
+		drag(board, board.outlines.g1.grip, [100, 50]);
+		click(board, board.outlines.g1.grip);
+		expect(handlers.onGroupMove).not.toHaveBeenCalled();
+		expect(handlers.onMove).not.toHaveBeenCalled();
+		expect(handlers.onPickNone).not.toHaveBeenCalled();
+		expect(handlers.onPickGroup).not.toHaveBeenCalled();
+	});
+
+	it("puts the outline back when the pointer is lost, and writes nothing", () => {
+		made = setUp({ onResizeMove: vi.fn(), onResize: vi.fn(), onResizeEnd: vi.fn() });
+		const { board, handlers } = made;
+		board.view.emit("pointerdown", board.outlines.g1.grip, { clientX: 0, clientY: 0 });
+		board.view.emit("pointermove", board.outlines.g1.grip, { clientX: 50, clientY: 20 });
+		board.flush();
+		board.view.emit("pointercancel", board.outlines.g1.grip, {});
+		expect(handlers.onResizeEnd).toHaveBeenCalledWith("g1", true);
+		board.view.emit("pointerup", board.outlines.g1.grip, { clientX: 50, clientY: 20 });
+		expect(handlers.onResize).not.toHaveBeenCalled();
+	});
+
+	it("puts the outline back when it is let go somewhere the board cannot place", () => {
+		made = setUp({ onResizeMove: vi.fn(), onResize: vi.fn(), onResizeEnd: vi.fn() });
+		const { board, handlers } = made;
+		board.view.emit("pointerdown", board.outlines.g1.grip, { clientX: 0, clientY: 0 });
+		board.view.emit("pointermove", board.outlines.g1.grip, { clientX: 50, clientY: 20 });
+		board.flush();
+		handlers.surface.pointToPercent.mockReturnValueOnce(null);
+		board.view.emit("pointerup", board.outlines.g1.grip, { clientX: 50, clientY: 20 });
+		expect(handlers.onResize).not.toHaveBeenCalled();
+		expect(handlers.onResizeEnd).toHaveBeenLastCalledWith("g1", true);
+	});
+
+	it("resizes nothing for a reader who may only look", () => {
+		made = setUp({ canEdit: () => false, onResizeMove: vi.fn(), onResize: vi.fn() });
+		drag(made.board, made.board.outlines.g1.grip, [100, 50]);
+		expect(made.handlers.onResizeMove).not.toHaveBeenCalled();
+		expect(made.handlers.onResize).not.toHaveBeenCalled();
+	});
+
+	it("is something a press can land on, so it neither pans nor boxes", () => {
+		made = setUp({ drawing: true });
+		const ev = { button: 0, target: made.board.outlines.g1.grip };
+		expect(pressStartsDraw(ev, { view: made.board.view, board: made.board.board })).toBe(false);
+		expect(pressStartsBox({ ...ev, shiftKey: true }, { view: made.board.view, board: made.board.board })).toBe(false);
+	});
+});

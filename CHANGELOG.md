@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Resize a group: click its name or outline and drag one of the four corner handles that appear. Hold Shift for a perfect square or circle. A group can be made bigger than its people, or smaller, though never smaller than one person.
+- Shrinking a group past somebody takes them out of it when you let go. While you drag, the people who will stay are ringed in the group's colour. A shrink that would leave nobody in the group is refused. The new size and anyone taken out are one undo step.
+
 ## 1.2.0
 
 - Easier ways to draw a line. Hold Alt and drag from anywhere on a portrait to draw a line out of it instead of moving them. The portrait's tooltip says so.
