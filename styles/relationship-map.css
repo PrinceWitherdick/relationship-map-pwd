@@ -519,6 +519,20 @@
 	white-space: nowrap;
 }
 
+/* THE LABEL IS TRIMMED TO ITS CAPITALS, and the icon beside it is left alone. `align-items: center`
+   above centres the label's LINE BOX, and Blink floors a line's half-leading to whole pixels, so in
+   Signika the words sat 1.2px high in every labelled tool (measured under v13 and v14 at 1x, 1.25x and
+   1.5x). Trimmed, what gets centred is the cap band itself: within 0.4px at root sizes 12-24px. The
+   padding puts back the height the trim took off, evenly, so no button changes size. (Stonetop lifts
+   its trimmed labels a further 0.02em; in Signika here that left them 0.5px high, so there is no lift.)
+   A browser without `text-box` keeps the untrimmed label as it was. */
+@supports (text-box: trim-both cap alphabetic) {
+	.relmap-tool > span {
+		text-box: trim-both cap alphabetic;
+		padding-block: calc((1lh - 1cap) / 2);
+	}
+}
+
 .relmap-tool[aria-pressed="true"] {
 	background: var(--relmap-accent);
 	color: var(--relmap-accent-text);

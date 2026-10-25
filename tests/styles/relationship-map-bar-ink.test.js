@@ -249,3 +249,43 @@ describe("the link and the trash on a portrait, which carry no labels either", (
 		}
 	});
 });
+
+// ── The words on the footer's tools ─────────────────────────────────────────────────────────────────
+//
+// `align-items: center` centres a label's LINE BOX, and Blink floors a line's half-leading to whole
+// pixels: in Signika the words sat 1.2px high in every labelled tool, under v13 and v14 alike, at 1x,
+// 1.25x and 1.5x. Trimmed to its capitals and padded back evenly, the label is centred on its cap band
+// to within 0.4px at root sizes 12-24px, and the button keeps its size (measured with the
+// text-centring audit, Playwright + Chromium, against core's foundry2.css).
+describe("the words on the footer's tools", () => {
+	const SPAN = ".relmap-tool > span";
+
+	it("are trimmed to their capitals", () => {
+		expect(declared(SPAN, "text-box")).toBe("trim-both cap alphabetic");
+	});
+
+	it("get back the height the trim took off, evenly, so no button changes size", () => {
+		expect(declared(SPAN, "padding-block")).toBe("calc((1lh - 1cap) / 2)");
+	});
+
+	// Without `text-box` the padding would be added to an untrimmed line box, and every button with
+	// words would grow taller than the history pair beside it.
+	it("are trimmed only where the browser can trim", () => {
+		const block = stripComments(CSS).match(/@supports\s*\(\s*text-box:\s*trim-both cap alphabetic\s*\)\s*\{([\s\S]*?\})\s*\}/);
+		expect(block, "an @supports (text-box) block").not.toBeNull();
+		expect(block[1]).toContain(SPAN);
+		expect(block[1]).toMatch(/text-box\s*:/);
+	});
+
+	// A trim reaches only a block container. The span is a grid item of the button, which makes it one.
+	it("sit in a button that lays them out as a grid item, where the trim reaches", () => {
+		expect(declared(".relmap-tool", "display")).toBe("inline-grid");
+	});
+
+	// A hand nudge on top of the trim would push the words off again.
+	it("carry no hand nudge", () => {
+		for (const prop of ["top", "position", "transform", "translate", "margin-top"]) {
+			expect(declared(SPAN, prop), prop).toBeNull();
+		}
+	});
+});

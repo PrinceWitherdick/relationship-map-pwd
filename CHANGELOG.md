@@ -4,6 +4,7 @@
 
 - A group shrunk to its smallest size by a corner stays where the corner put it, instead of jumping to the middle of its people.
 - If a map window fails to open, pressing the button again opens it after a few seconds, instead of doing nothing until Foundry is reloaded.
+- The words on the buttons under the map (Group, Draw lines, New person, Add someone) sit in the middle of their buttons instead of a little high.
 
 ## 1.2.1
 
