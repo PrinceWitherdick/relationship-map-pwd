@@ -4,7 +4,9 @@ A shared board of who knows whom, for [Foundry Virtual Tabletop](https://foundry
 
 It works with any game system.
 
-![A relationship map: portraits joined by coloured, captioned lines, with map tabs along the top and Add someone at the bottom](docs/images/relationship-map.webp)
+![A relationship map: portraits joined by coloured, captioned lines, two named groups, map tabs along the top and the tools along the bottom](docs/images/relationship-map.webp)
+
+**Documentation:** the [wiki](https://github.com/PrinceWitherdick/relationship-map-pwd/wiki) has a full guide, with pictures of every tool.
 
 ## Features
 
