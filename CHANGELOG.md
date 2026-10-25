@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A group shrunk to its smallest size by a corner stays where the corner put it, instead of jumping to the middle of its people.
+- If a map window fails to open, pressing the button again opens it after a few seconds, instead of doing nothing until Foundry is reloaded.
+
 ## 1.2.1
 
 - Resize a group: click its name or outline and drag one of the four corner handles that appear. Hold Shift for a perfect square or circle. A group can be made bigger than its people, or smaller, though never smaller than one person.

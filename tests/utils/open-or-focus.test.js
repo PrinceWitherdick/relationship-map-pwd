@@ -66,6 +66,46 @@ describe("opening a window that may already be open", () => {
 		expect(openOrFocus("broken", open)).not.toBe(first);
 	});
 
+	// A render that throws before it draws (the map's `_ensurePage` is a document write) leaves a window
+	// that looks exactly like one still waiting to draw. Held for ever, every later press would hand back
+	// that dead window, and nothing would open until a reload.
+	it("opens afresh once a window it minted has sat undrawn for longer than any window waits", () => {
+		vi.useFakeTimers();
+		try {
+			const open = vi.fn(() => new Win("stuck"));
+			const first = openOrFocus("stuck", open);
+			vi.advanceTimersByTime(2000);
+			expect(openOrFocus("stuck", open)).toBe(first);
+			vi.advanceTimersByTime(60000);
+			expect(openOrFocus("stuck", open)).not.toBe(first);
+			expect(open).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("still hands back a window part-way through drawing, however long the draw takes", () => {
+		vi.useFakeTimers();
+		try {
+			const open = vi.fn(() => new Win("slow"));
+			const first = openOrFocus("slow", open);
+			first._state = STATES.RENDERING;
+			vi.advanceTimersByTime(60000);
+			expect(openOrFocus("slow", open)).toBe(first);
+			expect(open).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// An opener that hands back a promise rather than a window is not something to hand back twice.
+	it("opens again every time for an opener that returns no window", () => {
+		const open = vi.fn(() => Promise.resolve(null));
+		openOrFocus("async", open);
+		openOrFocus("async", open);
+		expect(open).toHaveBeenCalledTimes(2);
+	});
+
 	// Raised and left collapsed, the press looks like it did nothing at all.
 	it("restores a minimized window as well as raising it", () => {
 		const shown = new Win("small", STATES.RENDERED);

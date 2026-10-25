@@ -13,20 +13,39 @@
 // every world hook wired twice, and closing one leaving its twin standing underneath. It takes nothing
 // unusual to get there -- two callers awaiting the one new-collection box resume back to back -- so the
 // window minted for an id is remembered until it has either rendered or given up.
+//
+// ⚠ BUT NOT FOR EVER. A window that has not begun to draw looks the same whether its render is still
+// awaiting something or has thrown before drawing at all (the map's own wait, `_ensurePage`, is a
+// document write that can fail), so one still undrawn after OPENING_GRACE_MS is taken to have given
+// up, and the next press opens afresh. Held for ever, every later press would hand back that dead
+// window, and the map would not open again until a reload. And every call first forgets the windows
+// that have finished opening, drawn or not, so nothing closed is held here for the rest of the session.
 import { findOpenApp } from "./open-windows.js";
 
-/** The window each id last minted, for the breath before core can find it. */
+/**
+ * How long a window minted and not yet drawing is still taken to be on its way. Longer than any wait
+ * a window makes before it draws, and than a reload's restore, which mints each window it reopens at
+ * once and draws them 120ms apart (utils/window-restore.js).
+ */
+const OPENING_GRACE_MS = 10000;
+
+/** The window each id last minted, and when, for the breath before core can find it. */
 const opening = new Map();
 
 /** Minted and asked to render, and not yet drawn, closed or failed. */
-function stillOpening(app) {
+function stillOpening({ app, at }, now) {
 	const states = app?.constructor?.RENDER_STATES;
 	if (!states) return false;
 	const state = app._state ?? app.state;
-	return state === states.NONE || state === states.RENDERING;
+	if (state === states.RENDERING) return true;
+	return state === states.NONE && now - at < OPENING_GRACE_MS;
 }
 
 export function openOrFocus(id, open) {
+	const now = Date.now();
+	for (const [key, entry] of opening) {
+		if (!stillOpening(entry, now)) opening.delete(key);
+	}
 	// Both registries: a V1 app lives in ui.windows, an ApplicationV2 in
 	// foundry.applications.instances. Looking in only one turns this silently into
 	// "always open a second copy" the day the app it guards is migrated.
@@ -40,10 +59,11 @@ export function openOrFocus(id, open) {
 		existing.bringToTop();
 		return existing;
 	}
+	// Whatever the sweep above left standing is a window still on its way.
 	const pending = opening.get(id);
-	if (stillOpening(pending)) return pending;
+	if (pending) return pending.app;
 	const app = open();
-	if (app) opening.set(id, app);
-	else opening.delete(id);
+	const minted = { app, at: now };
+	if (stillOpening(minted, now)) opening.set(id, minted);
 	return app;
 }
