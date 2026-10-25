@@ -502,12 +502,23 @@ export function resizeRect(rect, corner, point, {
 	return { left: Math.min(anchorX, x), right: Math.max(anchorX, x), top: Math.min(anchorY, y), bottom: Math.max(anchorY, y) };
 }
 
-/** The offsets that put an outline whose snug rectangle is `snug` on `rect`. */
+/**
+ * The offsets that put an outline whose snug rectangle is `snug` on `rect`.
+ *
+ * ⚠ ROUNDED OUTWARD, every side. They are stored in whole pixels, and rounded to the nearest each
+ * side could lose half of one, so a corner dragged in to the floor (`resizeRect` never asks for less)
+ * was stored a fraction UNDER it, and `groupOutline` then drew it at the floor centred on everybody
+ * in the group instead of under the corner. Outward, the stored rectangle always holds the asked
+ * one. The hair off whole is float noise: an offset that is already whole (the corner held still)
+ * must not creep out a pixel per drag.
+ */
 export function growFor(snug, rect) {
 	if (!snug || !rect) return readGroupGrow(null);
+	// `|| 0`: a hair under zero rounds up to negative zero, which a stored offset must not be.
+	const outward = n => Math.ceil(n - 1e-6) || 0;
 	return readGroupGrow({
-		left: snug.left - rect.left, top: snug.top - rect.top,
-		right: rect.right - snug.right, bottom: rect.bottom - snug.bottom,
+		left: outward(snug.left - rect.left), top: outward(snug.top - rect.top),
+		right: outward(rect.right - snug.right), bottom: outward(rect.bottom - snug.bottom),
 	});
 }
 
@@ -642,15 +653,14 @@ export function groupOutline(members = [], {
 		// SHRUNK BELOW ONE PERSON, which a shrunk outline can come to when its people walk in towards
 		// each other: drawn at the floor instead, centred on THEM (the snug outline), so a group of one
 		// is drawn round that one and never slides off them. Never inside out either.
-		// ⚠ A PIXEL OF SLACK: the offsets are stored in whole pixels (`readGroupGrow`), so a corner
-		// dragged in to exactly the floor can come back up to a pixel under it, and re-centring that
-		// would jump the outline off the corner that was held still.
+		// A corner dragged in to the floor is not this: `growFor` stores it a hair OVER the floor, so
+		// it stays under the corner. The tolerance is float noise only.
 		const min = groupMinSize(shape, wordScale);
-		if (right - left < min.w - 1) {
+		if (right - left < min.w - 1e-6) {
 			const mid = (snug.left + snug.right) / 2;
 			left = mid - min.w / 2; right = mid + min.w / 2;
 		}
-		if (bottom - top < min.h - 1) {
+		if (bottom - top < min.h - 1e-6) {
 			const mid = (snug.top + snug.bottom) / 2;
 			top = mid - min.h / 2; bottom = mid + min.h / 2;
 		}
