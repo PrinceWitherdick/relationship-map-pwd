@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.2
 
 - A group shrunk to its smallest size by a corner stays where the corner put it, instead of jumping to the middle of its people.
 - If a map window fails to open, pressing the button again opens it after a few seconds, instead of doing nothing until Foundry is reloaded.
