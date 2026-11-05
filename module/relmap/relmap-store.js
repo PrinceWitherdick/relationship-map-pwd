@@ -306,9 +306,9 @@ export const RELMAP_NOTE_MAX = RELMAP_NAME_MAX * 4;
  *
  * A TAG IS NOT A LABEL. "Label" is the caption on a line, everywhere in this module and on the
  * "Hide labels" box under the board, and that box would lie if it hid these too. A tag is a short
- * standing word under a name -- "deceased", "The Iron Knight" -- drawn as its own line on a pad
- * the width of the name's, so forty characters is past what that pad will show and three lines is
- * where the stack stops short of the next face down on a plain sheet.
+ * standing word with a name -- "deceased", "The Iron Knight" -- drawn as its own line on a pad of
+ * page colour the stylesheet cuts at twice the name's width, so forty characters is past what that
+ * pad will show and three lines is where the stack stops short of the next face down on a plain sheet.
  */
 export const RELMAP_TAG_MAX = 40;
 export const RELMAP_TAGS_MAX = 3;
@@ -332,6 +332,24 @@ export function readTags(value) {
 		if (tags.length >= RELMAP_TAGS_MAX) break;
 	}
 	return tags;
+}
+
+/**
+ * WHERE A PERSON'S NAME AND TAGS STAND ROUND THEIR FACE: under it, as every board has always drawn
+ * them, or above it, or to its left or right. The name and the tags are one plate and move together;
+ * the side is the reader's, per person, chosen in the tags window, for a board where the lines run
+ * over the words under somebody.
+ *
+ * Unknown and absent both read as below, so every board stored before this field existed draws
+ * exactly as it did, with no migration (there is none in this module); and `normalizeGraph` emits
+ * the field on every node, so the undo can read the old side back.
+ */
+export const RELMAP_SIDES = Object.freeze(["below", "above", "left", "right"]);
+export const RELMAP_SIDE_DEFAULT = "below";
+
+/** One stored side, read safely. Unknown and absent both read as below. */
+export function readSide(value) {
+	return RELMAP_SIDES.includes(value) ? value : RELMAP_SIDE_DEFAULT;
 }
 
 /**
@@ -417,6 +435,7 @@ export function normalizeGraph(raw) {
 			y: clampReach(node.y),
 			note: str(node.note, RELMAP_NOTE_MAX),
 			tags: readTags(node.tags),
+			side: readSide(node.side),
 		};
 	}
 
@@ -519,6 +538,7 @@ const NODE_GATES = Object.freeze({
 	name: v => str(v, RELMAP_NAME_MAX),
 	note: v => str(v, RELMAP_NOTE_MAX),
 	tags: readTags,
+	side: readSide,
 });
 
 const EDGE_GATES = Object.freeze({
@@ -574,9 +594,9 @@ export function edgePatch(id, fields = {}) {
 
 /** Put somebody on the map. Every field written, so the node is whole from its first write. */
 export function addNodePatch(id, {
-	uuid = null, name = "", img = "", x = 50, y = 50, note = "", tags = [],
+	uuid = null, name = "", img = "", x = 50, y = 50, note = "", tags = [], side = RELMAP_SIDE_DEFAULT,
 } = {}) {
-	return nodePatch(id, { uuid, name, img, x, y, note, tags });
+	return nodePatch(id, { uuid, name, img, x, y, note, tags, side });
 }
 
 /**
@@ -759,7 +779,7 @@ export function seatArrivals(graph, people = [], newId = () => foundry.utils.ran
 		const spot = seats?.[index] ?? freeSpot(taken, room);
 		nodes[id] = {
 			uuid: person.uuid, name: person.name ?? "", img: person.img ?? "",
-			x: spot.left, y: spot.top, note: "", tags: [],
+			x: spot.left, y: spot.top, note: "", tags: [], side: RELMAP_SIDE_DEFAULT,
 		};
 		taken.push(spot);
 		seated.push(nodeIdentity(person));

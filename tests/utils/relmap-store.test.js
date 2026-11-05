@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
 	RELMAP_DASH_DEFAULT, RELMAP_DIR_DEFAULT, RELMAP_INKS, RELMAP_INK_DEFAULT, RELMAP_LABEL_MAX,
 	RELMAP_SEAT_AUTO, RELMAP_SEAT_MAX, RELMAP_SEAT_MIN,
+	RELMAP_SIDES, RELMAP_SIDE_DEFAULT,
 	RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_SIZE_NONE, RELMAP_TAGS_MAX, RELMAP_TAG_MAX,
 	RELMAP_VERSION,
 	addEdgePatch, addNodePatch, dropEdgePatch, dropNodePatch, edgePatch, edgesBetween,
 	edgesTouching, emptyGraph, fanIndexes, isSafeId, nodePatch, normalizeGraph,
-	readSeat, readTags, relmapPath,
+	readSeat, readSide, readTags, relmapPath,
 } from "../../module/relmap/relmap-store.js";
 import { RELMAP_CAPTION_PX, RELMAP_REACH_MAX, RELMAP_REACH_MIN } from "../../module/utils/relmap-geometry.js";
 
@@ -152,11 +153,13 @@ describe("the shape of a write", () => {
 		const patch = addNodePatch("elena", { uuid: "Actor.a1", name: "Elena", x: 20, y: 30 });
 		expect(Object.keys(patch).sort()).toEqual([
 			`${PREFIX}.nodes.elena.img`, `${PREFIX}.nodes.elena.name`, `${PREFIX}.nodes.elena.note`,
-			`${PREFIX}.nodes.elena.tags`, `${PREFIX}.nodes.elena.uuid`, `${PREFIX}.nodes.elena.x`,
-			`${PREFIX}.nodes.elena.y`,
+			`${PREFIX}.nodes.elena.side`, `${PREFIX}.nodes.elena.tags`, `${PREFIX}.nodes.elena.uuid`,
+			`${PREFIX}.nodes.elena.x`, `${PREFIX}.nodes.elena.y`,
 		].sort());
-		// A person added whole carries no tags yet, and the field is there for the undo to record.
+		// A person added whole carries no tags yet, and the field is there for the undo to record;
+		// their name stands under the face, as every face's did before a side could be chosen.
 		expect(patch[`${PREFIX}.nodes.elena.tags`]).toEqual([]);
+		expect(patch[`${PREFIX}.nodes.elena.side`]).toBe("below");
 	});
 
 	it("refuses a link from somebody to themselves", () => {
@@ -309,7 +312,7 @@ describe("reading a stored map back", () => {
 			edges: {},
 		});
 		expect(Object.keys(g.nodes.elena).sort())
-			.toEqual(["img", "name", "note", "tags", "uuid", "x", "y"]);
+			.toEqual(["img", "name", "note", "side", "tags", "uuid", "x", "y"]);
 	});
 
 	it("reads a person with no actor behind them, which is a real case", () => {
@@ -366,6 +369,30 @@ describe("reading a stored map back", () => {
 		expect(nodePatch("elena", { tags: "deceased" })[`${PREFIX}.nodes.elena.tags`]).toEqual([]);
 		expect(nodePatch("elena", { tags: ["a", "b", "c", "d"] })[`${PREFIX}.nodes.elena.tags`])
 			.toEqual(["a", "b", "c"]);
+	});
+
+	// WHERE THE NAME AND TAGS STAND round the face: one of four words, and anything else -- a side
+	// nobody wrote, a number, nothing at all -- reads as below, so a board stored before the field
+	// existed draws exactly as it did, and the undo has a value to put back on every node.
+	it("reads a person's side, and a person with none stands below as every face did", () => {
+		expect(RELMAP_SIDES).toEqual(["below", "above", "left", "right"]);
+		expect(RELMAP_SIDE_DEFAULT).toBe("below");
+		for (const side of RELMAP_SIDES) expect(readSide(side)).toBe(side);
+		expect(readSide("under")).toBe("below");
+		expect(readSide(3)).toBe("below");
+		expect(readSide(null)).toBe("below");
+		expect(readSide(undefined)).toBe("below");
+		const g = normalizeGraph({ nodes: {
+			elena: { x: 1, y: 1, side: "left" },
+			stefan: { x: 2, y: 2 },
+		} });
+		expect(g.nodes.elena.side).toBe("left");
+		expect(g.nodes.stefan.side).toBe("below");
+	});
+
+	it("gates the side a patch writes the same way", () => {
+		expect(nodePatch("elena", { side: "sideways" })[`${PREFIX}.nodes.elena.side`]).toBe("below");
+		expect(nodePatch("elena", { side: "right" })[`${PREFIX}.nodes.elena.side`]).toBe("right");
 	});
 
 	it("keeps every ink it ships and replaces any it does not", () => {

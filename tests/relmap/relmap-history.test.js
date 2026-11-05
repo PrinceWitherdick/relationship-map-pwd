@@ -22,9 +22,10 @@ const PREFIX = relmapPath();
 function graph(over = {}) {
 	return normalizeGraph({
 		nodes: {
-			// ⚠ ELENA CARRIES A TAG, for the same reason the line below carries a size: a person
-			// put back whole is compared field by field, so a field `addNodePatch` forgets fails HERE.
-			elena: { uuid: "Actor.a1", name: "Elena", img: "e.webp", x: 20, y: 30, tags: ["the Elder"] },
+			// ⚠ ELENA CARRIES A TAG, AND STANDS HER WORDS ON THE RIGHT, for the same reason the line
+			// below carries a size: a person put back whole is compared field by field, so a field
+			// `addNodePatch` forgets fails HERE.
+			elena: { uuid: "Actor.a1", name: "Elena", img: "e.webp", x: 20, y: 30, tags: ["the Elder"], side: "right" },
 			stefan: { uuid: "Actor.b2", name: "Stefan", img: "s.webp", x: 70, y: 30 },
 		},
 		// ⚠ THE LINE CARRIES A SIZE OF ITS OWN, which is not decoration in a fixture. Putting a
@@ -111,6 +112,21 @@ describe("what one write does, and what would put it back", () => {
 		expect(back.nodes.elena.name).toBe("Elena");
 		const again = afterPatch(back, stepPatch(back, change.forward));
 		expect(again.nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+	});
+
+	// The side the name and tags stand on is a plain word leaf, written with the tags in one step
+	// from the tags window; the step back is the old word.
+	it("puts the side the name and tags stand on back as it was", () => {
+		const before = graph();
+		const patch = nodePatch("elena", { side: "above" });
+		const change = describeWrite(before, patch);
+		const after = afterPatch(before, patch);
+		expect(after.nodes.elena.side).toBe("above");
+
+		const back = afterPatch(after, stepPatch(after, change.back));
+		expect(back.nodes.elena.side).toBe("right");
+		const again = afterPatch(back, stepPatch(back, change.forward));
+		expect(again.nodes.elena.side).toBe("above");
 	});
 });
 
