@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import Handlebars from "handlebars";
-import { RELMAP_NODE_PX } from "../../module/utils/relmap-geometry.js";
+import { RELMAP_NODE_PX, RELMAP_TAG_MAX_PX } from "../../module/utils/relmap-geometry.js";
 
 // The map's three templates, COMPILED AND RENDERED against the context the code actually builds.
 //
@@ -1150,6 +1150,15 @@ describe("a portrait's box is the circle and nothing else", () => {
 	it("hangs the tags out of the flow too, at the stylesheet's own pitch", () => {
 		expect(rule("tag")).toMatch(/position:\s*absolute/);
 		expect(rule("tag")).toMatch(/--relmap-tag-i/);
+	});
+
+	// THE TAG'S WIDTH CAP IS ONE NUMBER IN TWO FILES: the stylesheet cuts the words at it and the geometry caps the
+	// room it makes round them with it. Held here so neither can move alone; and the name's own cap, which the tag's
+	// was widened away from, is held where it was.
+	it("caps a tag at the geometry's figure, twice the name, and leaves the name's cap alone", () => {
+		expect(rule("tag")).toMatch(new RegExp(`max-width:\\s*${RELMAP_TAG_MAX_PX}px`));
+		expect(rule("name")).toMatch(/max-width:\s*108px/);
+		expect(RELMAP_TAG_MAX_PX).toBe(216);
 	});
 });
 

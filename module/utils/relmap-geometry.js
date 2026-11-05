@@ -296,8 +296,9 @@ export function holdTravel(moved, from = []) {
 /**
  * How much room round a portrait's CENTRE the board must show for that person to be seen whole, in
  * board pixels: the face, its name hung underneath, and a margin. A person wearing tags needs a
- * line more below for each of them: `tagsBelowPx`, added per person and not here, so an untagged
- * board frames exactly as it always did.
+ * line more below for each of them, and room sideways past a tag wider than the name:
+ * `tagsBelowPx` and `tagsAcrossPx`, added per person and not here, so a board whose tags are
+ * short frames exactly as it always did (the 36px margin past the name is kept as it is).
  */
 const BOUNDS_PAD_X = 90;
 const BOUNDS_PAD_TOP = 60;
@@ -318,6 +319,38 @@ const TAG_LINE_PX = 16;
 function tagsBelowPx(node) {
 	const tags = node?.tags;
 	return Array.isArray(tags) ? TAG_LINE_PX * tags.length : 0;
+}
+
+/**
+ * How wide a tag under a name may be before the stylesheet cuts it: twice the name's 108px. THE STYLESHEET'S FIGURE
+ * (`.relmap-tag`'s `max-width`), exported so a test can hold the two to one number.
+ */
+export const RELMAP_TAG_MAX_PX = 216;
+/** The tag's pad of page colour, both sides: `.relmap-tag`'s `padding: 0 0.3em` at its 12px. */
+const TAG_PAD_PX = 7.2;
+
+/**
+ * How much further SIDEWAYS than the name one person's tags reach, in board pixels, as a half-width past the name's
+ * own (`GROUP_REACH_X`): nothing for the ordinary person whose tags are short.
+ *
+ * AN ESTIMATE, NOT A MEASUREMENT. The window measures nothing for tags, so a tag's width is the house figure for a
+ * letter -- `LABEL_CHAR_PX` at the captions' 16px, carried to the tag's 12 -- times its letters, plus the pad, and
+ * never past the stylesheet's cap. On this font that errs LARGE on ordinary mixed case (about a fifth over, as the
+ * measurement beside `LABEL_CHAR_PX` says), so an outline drawn from it has air to spare; it errs SMALL on capitals
+ * (a twenty-capital tag paints about 163px against 133 estimated), which eats most of the outline's 18px pad but
+ * never the words: the stylesheet cuts at 216 whatever the sum says. Sixteen letters or fewer fit inside the name's
+ * own width and add nothing.
+ *
+ * ⚠ THE PER-LETTER FIGURE IS WORKED OUT IN HERE AND NOT AS A CONST BESIDE `TAG_LINE_PX`: `LABEL_CHAR_PX` and
+ * `RELMAP_CAPTION_PX` are module-level consts declared a long way below, and a top-level initialiser up here would
+ * run in their temporal dead zone and throw the moment the module loaded. A function body reads them at call time.
+ */
+function tagsAcrossPx(node) {
+	const tags = node?.tags;
+	if (!Array.isArray(tags) || !tags.length) return 0;
+	const charPx = LABEL_CHAR_PX * 12 / RELMAP_CAPTION_PX;
+	const widest = Math.max(...tags.map(tag => Math.min(RELMAP_TAG_MAX_PX, charPx * String(tag ?? "").length + TAG_PAD_PX)));
+	return Math.max(0, widest / 2 - GROUP_REACH_X);
 }
 
 /**
@@ -344,8 +377,9 @@ export function boardBounds(nodes = [], { width = RELMAP_BOARD_WIDTH, height = R
 		const x = (Number(node?.x) / 100) * width;
 		const y = (Number(node?.y) / 100) * height;
 		if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-		box.left = Math.min(box.left, x - BOUNDS_PAD_X);
-		box.right = Math.max(box.right, x + BOUNDS_PAD_X);
+		const across = tagsAcrossPx(node);
+		box.left = Math.min(box.left, x - BOUNDS_PAD_X - across);
+		box.right = Math.max(box.right, x + BOUNDS_PAD_X + across);
 		box.top = Math.min(box.top, y - BOUNDS_PAD_TOP);
 		box.bottom = Math.max(box.bottom, y + BOUNDS_PAD_BOTTOM + tagsBelowPx(node));
 	}
@@ -363,7 +397,8 @@ export function boardBounds(nodes = [], { width = RELMAP_BOARD_WIDTH, height = R
  * HOW FAR A GROUP'S OUTLINE STANDS OFF ONE MEMBER'S CENTRE, in board pixels: the face, the name hung
  * under it (`.relmap-name` is capped at 108px wide and sits 2px below the face, 18px tall),
  * and a margin of paper so the outline never grazes either. A member wearing tags reaches a line
- * further down for each (`tagsBelowPx`, added per member in `groupOutline`).
+ * further down for each, and sideways past a tag wider than the name (`tagsBelowPx` and
+ * `tagsAcrossPx`, added per member in `groupOutline`).
  *
  * ⚠ THE FLOOR A GROUP CAN BE SHRUNK TO DOES NOT GROW WITH THEM. `RELMAP_GROUP_MIN_H` and
  * `groupMinSize` are sized for one untagged person, so a group dragged in to its floor round a
@@ -643,8 +678,9 @@ export function groupOutline(members = [], {
 		const x = (Number(member?.x) / 100) * width;
 		const y = (Number(member?.y) / 100) * height;
 		if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-		left = Math.min(left, x - GROUP_REACH_X);
-		right = Math.max(right, x + GROUP_REACH_X);
+		const across = tagsAcrossPx(member);
+		left = Math.min(left, x - GROUP_REACH_X - across);
+		right = Math.max(right, x + GROUP_REACH_X + across);
 		top = Math.min(top, y - GROUP_REACH_TOP);
 		bottom = Math.max(bottom, y + GROUP_REACH_BOTTOM + tagsBelowPx(member));
 	}

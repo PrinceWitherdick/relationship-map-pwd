@@ -6,7 +6,7 @@ import {
 } from "../../module/relmap/relmap-store.js";
 import {
 	RELMAP_CAPTION_PX, RELMAP_GROUP_GROW_MAX, RELMAP_GROUP_MIN_H, RELMAP_GROUP_MIN_W, RELMAP_GROUP_NEST_SIDE_PX,
-	RELMAP_GROUP_PAD_PX, boardBounds, groupFrame, groupMinSize, groupNestPx, groupOutline, groupShapes, groupsInside, growFor,
+	RELMAP_GROUP_PAD_PX, RELMAP_TAG_MAX_PX, boardBounds, groupFrame, groupMinSize, groupNestPx, groupOutline, groupShapes, groupsInside, growFor,
 	insideGroupShape, readGroupGrow, resizeRect,
 } from "../../module/utils/relmap-geometry.js";
 
@@ -325,6 +325,36 @@ describe("the outline round a group", () => {
 		// And whatever is not a list of tags is no tags at all.
 		const junk = groupOutline([at(20, 30), { x: 40, y: 50, tags: "deceased" }], { board });
 		expect(junk.bottom).toBe(plain.bottom);
+	});
+
+	// A TAG WIDER THAN THE NAME reaches sideways past the name's own 108px, by the house estimate of a letter (8.4px
+	// at 16, so 6.3 at the tag's 12) plus the pad, halved, less the name's half; never past the stylesheet's cap.
+	// Round ONE person, so both sides are theirs to move.
+	it("reaches sideways past a tag wider than the name, by the estimate, and never past the cap", () => {
+		const plain = groupOutline([at(50, 50)], { board });
+		const wide = groupOutline([{ x: 50, y: 50, tags: ["Ruler of the Thorny Tower"] }], { board });
+		// 25 letters: (6.3 * 25 + 7.2) / 2 - 54.
+		expect(plain.left - wide.left).toBeCloseTo(28.35);
+		expect(wide.right - plain.right).toBeCloseTo(28.35);
+		expect(wide.top).toBe(plain.top);
+		expect(wide.bottom - plain.bottom).toBeCloseTo(16);
+		// Sixteen letters or fewer fit inside the name's own width and move nothing sideways.
+		const short = groupOutline([{ x: 50, y: 50, tags: ["x".repeat(10)] }], { board });
+		expect(short.left).toBe(plain.left);
+		expect(short.right).toBe(plain.right);
+		// Forty letters would estimate past the cap: the reach stops at the cap's half less the name's.
+		const long = groupOutline([{ x: 50, y: 50, tags: ["x".repeat(40)] }], { board });
+		expect(plain.left - long.left).toBeCloseTo(RELMAP_TAG_MAX_PX / 2 - 54);
+		expect(groupOutline([{ x: 50, y: 50, tags: "Ruler of the Thorny Tower" }], { board }).left).toBe(plain.left);
+	});
+
+	// With two members, each side is the furthest member's: a wide tag on the lower-right one moves the right side
+	// and leaves the left to the untagged member on the left.
+	it("moves only the side the wide-tagged member is on", () => {
+		const plain = groupOutline([at(20, 30), at(40, 50)], { board });
+		const wide = groupOutline([at(20, 30), { x: 40, y: 50, tags: ["Ruler of the Thorny Tower"] }], { board });
+		expect(wide.left).toBe(plain.left);
+		expect(wide.right - plain.right).toBeCloseTo(28.35);
 	});
 
 	it("stands a group a step clear of an outline it contains", () => {

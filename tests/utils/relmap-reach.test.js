@@ -89,6 +89,22 @@ describe("the part of the board with anything on it", () => {
 		expect(tagged.top).toBe(plain.top);
 		expect(boardBounds([{ x: 50, y: 150, tags: "deceased" }], sheet).bottom).toBe(plain.bottom);
 	});
+
+	// A tag wider than the name reaches sideways too (the estimate: 6.3px a letter at 12px, plus the pad, halved,
+	// less the name's half). Off the sheet on each side, because a person ON it stands well inside the frame
+	// already and moves nothing whatever they wear.
+	it("reaches sideways for a tag wider than the name, on whichever side the person stands off the sheet", () => {
+		const tag = "Ruler of the Thorny Tower";
+		const leftPlain = boardBounds([{ x: -20, y: 50 }], sheet);
+		const leftWide = boardBounds([{ x: -20, y: 50, tags: [tag] }], sheet);
+		expect(leftPlain.left - leftWide.left).toBeCloseTo(28.35);
+		expect(leftWide.right).toBe(leftPlain.right);
+		const rightPlain = boardBounds([{ x: 120, y: 50 }], sheet);
+		const rightWide = boardBounds([{ x: 120, y: 50, tags: [tag] }], sheet);
+		expect(rightWide.right - rightPlain.right).toBeCloseTo(28.35);
+		expect(rightWide.left).toBe(rightPlain.left);
+		expect(boardBounds([{ x: -20, y: 50, tags: ["x".repeat(10)] }], sheet)).toEqual(leftPlain);
+	});
 });
 
 /** The smallest element a surface will attach to, as zoom-pan-surface.test.js builds it. */
