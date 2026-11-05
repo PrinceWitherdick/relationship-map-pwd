@@ -3689,7 +3689,9 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	flex-direction: column;
 	gap: 6px;
 }
-.relmap-text-prompt--lines textarea { resize: vertical; }
+/* `font: inherit`: core sets every textarea in monospace, which is right for a macro and wrong for three words
+   under a name; the one-line boxes beside it are already in the window's own type. */
+.relmap-text-prompt--lines textarea { resize: vertical; font: inherit; }
 
 /* Several labelled boxes: each label sits on its own line above its box. */
 .relmap-text-prompt--fields {
