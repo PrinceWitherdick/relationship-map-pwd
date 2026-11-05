@@ -1997,22 +1997,18 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    tabs and dialogs and leaves the board alone until it is zoomed. Matched by
    `.relmap-label-text`, which is the same decision for the captions on the lines. */
 .relmap-name {
-	/* HUNG UNDER THE FACE, OUT OF THE FLOW, for the reason `.relmap-node` above gives at
-	   length: a caption in the flow makes the node taller than the circle, and the circle then
-	   stops sitting on the coordinate its lines are drawn to. `top: 100%` is the bottom of the
-	   face, which is what this box now is. It is still a drop target and still hit-tested (the
-	   drag walks up to `[data-relmap-node]` from whatever is under the pointer), and it still
-	   takes no part in where anything is measured. */
-	position: absolute;
-	top: 100%;
-	left: 50%;
-	margin-top: 2px;
+	/* ONE LINE OF THE PLATE (`.relmap-plate` below), which is what hangs it off the face out of the
+	   flow, for the reason `.relmap-node` above gives at length: a caption in the flow makes the
+	   node taller than the circle, and the circle then stops sitting on the coordinate its lines
+	   are drawn to. In here, only the words' own look. It is still a drop target and still
+	   hit-tested (the drag walks up to `[data-relmap-node]` from whatever is under the pointer),
+	   and it still takes no part in where anything is measured. */
+	flex: none;
 	padding: 0 0.3em;
-	/* Sized to the name and then capped, because an absolute box has no column to take its width
-	   from any more. The transform centres whatever that comes out as under the face. */
+	/* Sized to the name and then capped, because the plate lays each line out at its own width
+	   and hands no column down. Beside the face the cap is a tag's (the side rules below). */
 	width: max-content;
 	max-width: 108px;
-	transform: translateX(-50%);
 	border-radius: var(--relmap-radius-sm);
 	background: var(--relmap-page);
 	color: var(--relmap-text-body);
@@ -2024,22 +2020,21 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	white-space: nowrap;
 }
 
-/* THE TAGS UNDER THE NAME: "deceased", "The Iron Knight". Hung the way the name is and for the same
-   reason, one line each, each placed by its index (`--relmap-tag-i`, written by the board partial)
-   so the stack's pitch lives here beside the name's own figures: the name sits 2px under the face
-   and is 18px tall (12px type at 1.5), so the first tag starts 20px under the face and each one is
-   16px. The name's pad of page colour, so a tag crossing a line is read over it.
+/* THE TAGS UNDER THE NAME: "deceased", "The Iron Knight". Lines of the plate like the name, one
+   each, stacked under it by the plate so the pitch lives here beside the name's own figures: the
+   name is 18px tall (12px type at 1.5) and each tag is a 16px line. The name's pad of page colour,
+   so a tag crossing a line is read over it.
 
    TWICE THE NAME'S WIDTH, 216px, and not the name's 108. A name is a proper noun that must stay under its own face on
    a crowded board; a tag is a phrase, and sixteen letters cut "Ruler of the Rexford" in half. Twice the name shows most
    phrases whole and still stops a forty-letter one short of the next face but one. On a fresh ring the faces stand
    108px apart, so a tag this wide can lie across the near half of a same-height neighbour's tag (never their face):
    accepted, and the later node in the markup paints over the earlier one's pad.
-   ⚠ relmap-geometry.js KNOWS THIS FIGURE TOO: `RELMAP_TAG_MAX_PX` caps the sideways reach it adds for a wide tag
-   (`tagsAcrossPx`), and a test holds the two to one number.
+   ⚠ relmap-geometry.js KNOWS THIS FIGURE TOO: `RELMAP_TAG_MAX_PX` caps the sideways reach it gives a wide tag
+   (`plateReach`), and a test holds the two to one number.
 
    ⚠ relmap-geometry.js KNOWS THE PITCH. A group's outline and the board's frame reach 16px further
-   down for every tag a person wears (`tagsBelowPx`); change it here and there together.
+   for every tag a person wears (`plateReach`); change it here and there together.
 
    THE QUIET INK AND NOT THE BODY'S, so the name stays the thing a reader finds first. It is the token
    the captions' quiet words use, held to 4.5:1 on every theme and both boards by
@@ -2047,13 +2042,10 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    name's. And a press on a tag moves the person, as a press on the name does (the pointer-events
    line above). */
 .relmap-tag {
-	position: absolute;
-	top: calc(100% + 20px + var(--relmap-tag-i, 0) * 16px);
-	left: 50%;
+	flex: none;
 	padding: 0 0.3em;
 	width: max-content;
 	max-width: 216px;
-	transform: translateX(-50%);
 	border-radius: var(--relmap-radius-sm);
 	background: var(--relmap-page);
 	color: var(--relmap-text-quiet);
@@ -2063,6 +2055,75 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+/* THE PLATE: the name and the tags under it, one block hung off the face OUT OF THE FLOW, for the
+   reason `.relmap-node` above gives at length: a caption in the flow makes the node taller than the
+   circle, and the circle then stops sitting on the coordinate its lines are drawn to. The plate is
+   absolute and the words stack inside it in the flow, so the stylesheet owns the pitch in one place:
+   the name is 18px (12px type at 1.5), each tag a 16px line, and the plate's own edge is where the
+   stack starts.
+
+   BELOW IS WHERE EVERY BOARD HAS ALWAYS DRAWN IT, and these figures are that board's to the pixel:
+   2px under the face, so the name runs y 74..92 of the 72px box and the first tag 92..108, as the
+   old `top: 100%; margin-top: 2px` and `top: calc(100% + 20px + i * 16px)` put them. 216px wide and
+   centred (`left: 50% - 108px`), a tag's cap, so a wide tag has its whole room and a short name sits
+   centred inside it.
+
+   THE OTHER THREE SIDES are the node's to say (`data-relmap-side`, the stored `side`), for a board
+   where the lines run over the words under somebody. Each stands 14px off the face: the handle and
+   the trash can overhang the face by 12px at the top corners (y -12..18, x -12..18 and 54..84), and
+   the name's own 2px gap makes 14, so the words clear both discs on every side. Above, the plate ends
+   14px over the face's top, the name first and the tags under it as everywhere. Beside the face it
+   stands level with the middle (`translateY(-50%)`: the plate is 18 + 16 a tag tall, even, so the
+   half is whole pixels) and is aligned towards the face, and the name may be as wide as a tag there,
+   one column reading as one. The discs' invisible 6px press pads still reach 4px into a plate's
+   nearest corner while the node is hovered: accepted.
+
+   ⚠ relmap-geometry.js KNOWS ALL OF THIS: `plateReach` gives a group's outline and the board's frame
+   the face and the plate on its side from these figures (`RELMAP_PLATE_AIR_PX` 14, the name's 108,
+   the tag's 216, 18 and 16), and tests hold the exported ones to one number. Change here and there
+   together.
+
+   NO POINTER EVENTS OF ITS OWN (inherited `none` from `.relmap-node`, said here so nobody wonders):
+   the words inside keep theirs from the list above, so a press on a name or a tag still moves the
+   person and a double click still opens the editor, and the paper between two words is the board's. */
+.relmap-plate {
+	position: absolute;
+	top: calc(100% + 2px);
+	left: calc(50% - 108px);
+	width: 216px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	pointer-events: none;
+}
+
+.relmap-node[data-relmap-side="above"] .relmap-plate {
+	top: auto;
+	bottom: calc(100% + 14px);
+}
+
+.relmap-node[data-relmap-side="right"] .relmap-plate {
+	top: 50%;
+	left: calc(100% + 14px);
+	transform: translateY(-50%);
+	align-items: flex-start;
+}
+
+.relmap-node[data-relmap-side="left"] .relmap-plate {
+	top: 50%;
+	left: auto;
+	right: calc(100% + 14px);
+	transform: translateY(-50%);
+	align-items: flex-end;
+}
+
+/* Beside the face the name may run as wide as a tag: the plate is one column there, and a name cut
+   at 108 over a 216 tag would read as a mistake. */
+.relmap-node[data-relmap-side="left"] .relmap-name,
+.relmap-node[data-relmap-side="right"] .relmap-name {
+	max-width: 216px;
 }
 
 /* 30px AND NOT THE 22 IT WAS, with a pad of invisible reach round it below, so the press that counts
@@ -2112,7 +2173,12 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    sit over the end of a long name on hover and take its presses. Placed by the figures instead: a
    30px disc at right -22px / bottom 4px covers x 64..94, y 38..68, and with its 6px pad reaches y 74,
    the name's top edge, and no further; its centre stands 46px off the face's, as the handle's does,
-   and 50px off the handle's own, so the two are never neighbours. */
+   and 50px off the handle's own, so the two are never neighbours.
+
+   AND ON THE LEFT WHEN THE PLATE STANDS ON THE RIGHT (`data-relmap-side`, the rule below): the words
+   then run from x 86 across the very spot, so the disc crosses to the mirror of its place, x -22..8,
+   y 38..68 -- 20px under the trash can's reach at the top-left corner, and as far inside the rim as
+   it stands on the right. On the other three sides nothing of the plate comes near it. */
 .relmap-pen {
 	position: absolute;
 	right: -22px;
@@ -2130,6 +2196,11 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
 .relmap-node:hover .relmap-pen,
 .relmap-pen:focus-visible { opacity: 1; pointer-events: auto; }
+
+.relmap-node[data-relmap-side="right"] .relmap-pen {
+	right: auto;
+	left: -22px;
+}
 
 .relmap-pen::before {
 	content: "";

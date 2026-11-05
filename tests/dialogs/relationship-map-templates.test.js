@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import Handlebars from "handlebars";
-import { RELMAP_NODE_PX, RELMAP_TAG_MAX_PX } from "../../module/utils/relmap-geometry.js";
+import {
+	RELMAP_NAME_MAX_PX, RELMAP_NODE_PX, RELMAP_PLATE_AIR_PX, RELMAP_TAG_MAX_PX,
+} from "../../module/utils/relmap-geometry.js";
 
 // The map's three templates, COMPILED AND RENDERED against the context the code actually builds.
 //
@@ -25,13 +27,13 @@ const WINDOW = "templates/dialogs/relationship-map.hbs";
 const boardContext = () => ({
 	nodes: [
 		{
-			id: "n1", name: "Elena", tags: ["the Elder", "Keeper of <the> Ford"], left: 20, top: 30,
+			id: "n1", name: "Elena", tags: ["the Elder", "Keeper of <the> Ford"], side: "below", left: 20, top: 30,
 			img: "elena.webp", imgStyle: "position:absolute;width:200%", missing: false,
 			tooltip: "Elena. Click to open their sheet.", linkLabel: "Draw a line from Elena",
 			removeLabel: "Take Elena off this map", tagsLabel: "Edit the tags under Elena",
 		},
 		{
-			id: "n2", name: "Stefan", tags: [], left: 70, top: 30, img: "", imgStyle: "", missing: true,
+			id: "n2", name: "Stefan", tags: [], side: "right", left: 70, top: 30, img: "", imgStyle: "", missing: true,
 			tooltip: "Stefan", linkLabel: "Draw a line from Stefan",
 			removeLabel: "Take Stefan off this map", tagsLabel: "Edit the tags under Stefan",
 		},
@@ -97,16 +99,27 @@ describe("the board template", () => {
 		expect(html).not.toContain('viewBox="0 0  "');
 	});
 
-	// THE TAGS UNDER A NAME: one span each, in the order they were typed, placed by index so the
-	// stylesheet owns the pitch, and escaped on the way out -- a tag is text somebody at this table
-	// typed. Stefan has none, so the count is Elena's two and nothing else.
-	it("prints every tag under its person, in order, placed by index, and never as markup", () => {
+	// THE TAGS UNDER A NAME: one span each, in the order they were typed, stacked under the name
+	// inside the plate so the stylesheet owns the pitch, and escaped on the way out -- a tag is text
+	// somebody at this table typed. Stefan has none, so the count is Elena's two and nothing else.
+	it("prints every tag under its person, in order, inside the plate, and never as markup", () => {
 		const html = render(boardContext());
-		expect(html).toContain('<span class="relmap-tag" style="--relmap-tag-i:0">the Elder</span>');
-		expect(html).toContain('<span class="relmap-tag" style="--relmap-tag-i:1">Keeper of &lt;the&gt; Ford</span>');
+		expect(html).toContain('<span class="relmap-tag">the Elder</span>');
+		expect(html).toContain('<span class="relmap-tag">Keeper of &lt;the&gt; Ford</span>');
 		expect(html.indexOf("the Elder")).toBeLessThan(html.indexOf("Keeper of"));
 		expect(html.match(/class="relmap-tag"/g)).toHaveLength(2);
 		expect(html).not.toContain("<the>");
+	});
+
+	// THE PLATE: the name and the tags are one block, and the node says which side of the face it
+	// stands on, for the stylesheet to place by. Stefan's plate holds his name alone.
+	it("puts the name and the tags in one plate, and says on the node which side it stands", () => {
+		const html = render(boardContext());
+		expect(html).toMatch(/<div class="relmap-plate">\s*<span class="relmap-name">Elena<\/span>\s*<span class="relmap-tag">the Elder<\/span>\s*<span class="relmap-tag">Keeper of &lt;the&gt; Ford<\/span>\s*<\/div>/);
+		expect(html).toMatch(/<div class="relmap-plate">\s*<span class="relmap-name">Stefan<\/span>\s*<\/div>/);
+		expect(html).toContain('data-relmap-node="n1" data-relmap-side="below"');
+		expect(html).toContain('data-relmap-node="n2" data-relmap-side="right"');
+		expect(html.match(/class="relmap-plate"/g)).toHaveLength(2);
 	});
 
 	// Same reach, for the flag that decides whether the link handles exist at all.
@@ -1140,25 +1153,49 @@ describe("a portrait's box is the circle and nothing else", () => {
 	});
 
 	// THE REGRESSION ITSELF: the name back in the flow, making the node about 92px tall and
-	// carrying the circle ten pixels off the coordinate every line is aimed at.
-	it("hangs the name out of the flow rather than stacking it under the face", () => {
-		expect(rule("name")).toMatch(/position:\s*absolute/);
-	});
-
-	// And the tags under it, for the same reason: three lines in the flow would carry the circle
-	// twenty-four pixels off its coordinate.
-	it("hangs the tags out of the flow too, at the stylesheet's own pitch", () => {
-		expect(rule("tag")).toMatch(/position:\s*absolute/);
-		expect(rule("tag")).toMatch(/--relmap-tag-i/);
+	// carrying the circle ten pixels off the coordinate every line is aimed at. The plate is what
+	// hangs the name and the tags out of the flow now; the words themselves stack inside it, so
+	// neither is absolute on its own.
+	it("hangs the plate of name and tags out of the flow rather than stacking it under the face", () => {
+		expect(rule("plate")).toMatch(/position:\s*absolute/);
+		expect(rule("plate")).toMatch(/flex-direction:\s*column/);
+		expect(rule("name")).not.toMatch(/position:\s*absolute/);
+		expect(rule("tag")).not.toMatch(/position:\s*absolute/);
 	});
 
 	// THE TAG'S WIDTH CAP IS ONE NUMBER IN TWO FILES: the stylesheet cuts the words at it and the geometry caps the
 	// room it makes round them with it. Held here so neither can move alone; and the name's own cap, which the tag's
-	// was widened away from, is held where it was.
-	it("caps a tag at the geometry's figure, twice the name, and leaves the name's cap alone", () => {
+	// was widened away from, is held where it was, and is the geometry's figure too.
+	it("caps a tag at the geometry's figure, twice the name, and the name at its own", () => {
 		expect(rule("tag")).toMatch(new RegExp(`max-width:\\s*${RELMAP_TAG_MAX_PX}px`));
-		expect(rule("name")).toMatch(/max-width:\s*108px/);
+		expect(rule("name")).toMatch(new RegExp(`max-width:\\s*${RELMAP_NAME_MAX_PX}px`));
 		expect(RELMAP_TAG_MAX_PX).toBe(216);
+		expect(RELMAP_NAME_MAX_PX).toBe(108);
+	});
+
+	// WHERE THE PLATE STANDS, by the node's `data-relmap-side`: below is the bare rule, 2px under the
+	// face and centred; the other three sides stand 14px off it, the geometry's figure, beside the
+	// face level with its middle and aligned towards it, with the name as wide as a tag there; and the
+	// pen crosses to the left when the plate takes its place on the right.
+	const sideRule = (side, part) => [...css.matchAll(
+		new RegExp(`\\.relmap-node\\[data-relmap-side="${side}"\\]\\s*\\.relmap-${part}\\s*(?:,[^{]*)?\\{([^}]*)\\}`, "g"),
+	)].map(found => found[1]).join("\n");
+	it("places the plate on the chosen side of the face, by the geometry's figures", () => {
+		const air = `calc\\(100% \\+ ${RELMAP_PLATE_AIR_PX}px\\)`;
+		expect(rule("plate")).toMatch(/top:\s*calc\(100% \+ 2px\)/);
+		expect(rule("plate")).toMatch(new RegExp(`left:\\s*calc\\(50% - ${RELMAP_TAG_MAX_PX / 2}px\\)`));
+		expect(rule("plate")).toMatch(new RegExp(`width:\\s*${RELMAP_TAG_MAX_PX}px`));
+		expect(sideRule("above", "plate")).toMatch(new RegExp(`bottom:\\s*${air}`));
+		expect(sideRule("right", "plate")).toMatch(new RegExp(`left:\\s*${air}`));
+		expect(sideRule("right", "plate")).toMatch(/translateY\(-50%\)/);
+		expect(sideRule("right", "plate")).toMatch(/align-items:\s*flex-start/);
+		expect(sideRule("left", "plate")).toMatch(new RegExp(`right:\\s*${air}`));
+		expect(sideRule("left", "plate")).toMatch(/translateY\(-50%\)/);
+		expect(sideRule("left", "plate")).toMatch(/align-items:\s*flex-end/);
+		expect(sideRule("right", "name")).toMatch(new RegExp(`max-width:\\s*${RELMAP_TAG_MAX_PX}px`));
+		expect(sideRule("left", "name")).toMatch(new RegExp(`max-width:\\s*${RELMAP_TAG_MAX_PX}px`));
+		expect(sideRule("right", "pen")).toMatch(/left:\s*-22px/);
+		expect(RELMAP_PLATE_AIR_PX).toBe(14);
 	});
 });
 

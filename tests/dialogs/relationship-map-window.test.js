@@ -1296,11 +1296,14 @@ describe("what a portrait says when it is rested on", () => {
 		expect(tooltips().nobody).toMatch(/^The Miller\. /);
 	});
 
-	it("hands the board each person's tags, and the pen's own label", () => {
+	it("hands the board each person's tags, the side their plate stands on, and the pen's own label", () => {
 		const { app } = windowFor(CAST);
 		const nodes = Object.fromEntries(app._boardContext(app._plan()).nodes.map(node => [node.id, node]));
 		expect(nodes.elena.tags).toEqual(["the Elder"]);
 		expect(nodes.nobody.tags).toEqual([]);
+		// Nobody in this cast chose a side, so every plate stands below, as every board drew it.
+		expect(nodes.elena.side).toBe("below");
+		expect(nodes.nobody.side).toBe("below");
 		expect(nodes.elena.tagsLabel).toBe(TABLE.format("RELMAP.tags.edit", { name: "Elena" }));
 	});
 

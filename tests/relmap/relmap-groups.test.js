@@ -357,6 +357,40 @@ describe("the outline round a group", () => {
 		expect(wide.right - plain.right).toBeCloseTo(28.35);
 	});
 
+	// WHERE THE PLATE STANDS. A person may stand their name and tags above the face or beside it (`side`), and the
+	// outline follows the words: it hugs the face where nothing hangs any more, and reaches past the plate where it
+	// does. Round ONE person, so every side is theirs.
+	it("reaches up past a plate above the face, and no further down than the face", () => {
+		const plain = groupOutline([at(50, 50)], { board });
+		const above = groupOutline([{ x: 50, y: 50, name: "Sela", tags: ["deceased", "the Elder"], side: "above" }], { board });
+		// 36 + 14 + 18 + 2 * 16 = 100 up, against the plain 36; 36 down, against the plain 56.
+		expect(plain.top - above.top).toBeCloseTo(64);
+		expect(plain.bottom - above.bottom).toBeCloseTo(20);
+		expect(above.left).toBe(plain.left);
+		expect(above.right).toBe(plain.right);
+	});
+
+	// Beside the face the plate is as wide as its widest line, the name estimated like a tag (6.3px a letter plus the
+	// 7.2 pad) and capped like one, standing 14px off the face; and nothing hangs below any more.
+	it("reaches past a plate beside the face by its widest line, and hugs the face everywhere else", () => {
+		const plain = groupOutline([at(50, 50)], { board });
+		const right = groupOutline([{ x: 50, y: 50, name: "Sela", tags: [], side: "right" }], { board });
+		// 36 + 14 + (6.3 * 4 + 7.2) = 82.4 against the name's 54 on the right; 36 against 54 on the left.
+		expect(right.right - plain.right).toBeCloseTo(28.4);
+		expect(right.left - plain.left).toBeCloseTo(18);
+		expect(right.top).toBe(plain.top);
+		expect(plain.bottom - right.bottom).toBeCloseTo(20);
+		const wide = groupOutline([{ x: 50, y: 50, name: "Sela", tags: ["Ruler of the Thorny Tower"], side: "right" }], { board });
+		expect(wide.right - plain.right).toBeCloseTo(160.7);
+		const long = groupOutline([{ x: 50, y: 50, name: "Sela", tags: ["x".repeat(40)], side: "right" }], { board });
+		expect(long.right - plain.right).toBeCloseTo(RELMAP_TAG_MAX_PX + 50 - 54);
+		const left = groupOutline([{ x: 50, y: 50, name: "Sela", tags: [], side: "left" }], { board });
+		expect(plain.left - left.left).toBeCloseTo(28.4);
+		expect(plain.right - left.right).toBeCloseTo(18);
+		// A side nobody wrote is below, and below pays the name no mind: the plain outline exactly.
+		expect(groupOutline([{ x: 50, y: 50, name: "Sela", side: "sideways" }], { board })).toEqual(plain);
+	});
+
 	it("stands a group a step clear of an outline it contains", () => {
 		const members = [at(20, 30), at(40, 50)];
 		const flat = groupOutline(members, { board });

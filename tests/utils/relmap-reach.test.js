@@ -105,6 +105,28 @@ describe("the part of the board with anything on it", () => {
 		expect(rightWide.left).toBe(rightPlain.left);
 		expect(boardBounds([{ x: -20, y: 50, tags: ["x".repeat(10)] }], sheet)).toEqual(leftPlain);
 	});
+
+	// WHERE THE PLATE STANDS: a frame that stopped at the face would open with a name above somebody's head, or a
+	// long tag beside them, cut off at the window's edge. Off the sheet, as above, because on it the sheet's own edge
+	// is the frame whatever they wear; and below the sheet, because a plate beside the face hangs nothing under it.
+	it("reaches past a plate above or beside the face, and no further down than the face", () => {
+		const abovePlain = boardBounds([{ x: 50, y: -20 }], sheet);
+		const above = boardBounds([{ x: 50, y: -20, name: "Sela", tags: ["deceased", "the Elder"], side: "above" }], sheet);
+		// 36 + 14 + 18 + 32 = 100 up and the 24 margin, against the plain 36 + 24.
+		expect(abovePlain.top - above.top).toBeCloseTo(64);
+		expect(above.bottom).toBe(abovePlain.bottom);
+		const rightPlain = boardBounds([{ x: 120, y: 50 }], sheet);
+		const right = boardBounds([{ x: 120, y: 50, name: "A", tags: ["Ruler of the Thorny Tower"], side: "right" }], sheet);
+		// 36 + 14 + 164.7 and the 36 margin, against the name's 54 + 36: 1690.7 against 1530.
+		expect(rightPlain.right).toBe(1530);
+		expect(right.right - rightPlain.right).toBeCloseTo(160.7);
+		expect(right.left).toBe(rightPlain.left);
+		const belowPlain = boardBounds([{ x: 50, y: 120 }], sheet);
+		const beside = boardBounds([{ x: 50, y: 120, name: "Sela", side: "right" }], sheet);
+		// 36 + 34 under the centre against the name's 56 + 34: 1222 against 1242.
+		expect(belowPlain.bottom).toBe(1152 + 90);
+		expect(belowPlain.bottom - beside.bottom).toBeCloseTo(20);
+	});
 });
 
 /** The smallest element a surface will attach to, as zoom-pan-surface.test.js builds it. */

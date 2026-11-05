@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
 	RELMAP_BOARD_ASPECT, RELMAP_BOARD_MAX, RELMAP_BOARD_WIDTH, RELMAP_CAPTION_PX, RELMAP_HEAD_PX,
+	RELMAP_NAME_MAX_PX, RELMAP_PLATE_AIR_PX, RELMAP_TAG_MAX_PX,
 	bandPath, boardMetrics,
 	clampPct, clearanceBow,
 	RELMAP_LABEL_CLEAR_PX,
 	edgeArrowheads, edgeBow, edgeCurve, edgeLabelAnchor, fanBow, freeSpot, labelSize,
-	captionRoomPx, captionSize, curvePoints, curveWithGap, nodeRadiusPct, ringsLayout,
+	captionRoomPx, captionSize, curvePoints, curveWithGap, nodeRadiusPct, plateReach, ringsLayout,
 	seatAlong, spreadLabels,
 } from "../../module/utils/relmap-geometry.js";
 
@@ -1430,5 +1431,58 @@ describe("a caption on a board set in a bigger base", () => {
 		const said = labelSize(line, 1200, Infinity, 300, 0, RELMAP_CAPTION_PX * 1.5);
 		const quiet = labelSize(line, 1200, Infinity, 300, 0);
 		expect(said.w).toBe(quiet.w);
+	});
+});
+
+// HOW FAR ONE PERSON REACHES: the face, and the plate of words (the name and the tags under it) on
+// whichever side the reader stood it. The plain person below is today's figures to the pixel, so a
+// board stored before a side could be chosen frames and outlines exactly as it did; the other three
+// sides follow the stylesheet's placement (14px of air, the name estimated like a tag beside the face).
+describe("how far one person reaches, face and plate of words", () => {
+	const plain = { left: 54, right: 54, top: 36, bottom: 56 };
+
+	it("is the face and the name under it for a bare point, and for a side nobody wrote", () => {
+		expect(plateReach({ x: 1, y: 2 })).toEqual(plain);
+		expect(plateReach({ name: "Sela", tags: "deceased", side: "sideways" })).toEqual(plain);
+		expect(plateReach(undefined)).toEqual(plain);
+	});
+
+	it("hangs a line more for each tag below, and half a wide tag sideways", () => {
+		expect(plateReach({ tags: ["a", "b", "c"] })).toEqual({ ...plain, bottom: 104 });
+		const wide = plateReach({ tags: ["Ruler of the Thorny Tower"] });
+		// (6.3 * 25 + 7.2) / 2 = 82.35 each side, past the name's 54.
+		expect(wide.left).toBeCloseTo(82.35);
+		expect(wide.right).toBeCloseTo(82.35);
+		expect(wide.top).toBe(36);
+		expect(wide.bottom).toBe(72);
+		expect(plateReach({ tags: ["x".repeat(40)] }).right).toBe(RELMAP_TAG_MAX_PX / 2);
+	});
+
+	it("stands the plate over the face with the air that clears the handle and the trash can", () => {
+		expect(plateReach({ side: "above" })).toEqual({ left: 54, right: 54, top: 36 + 14 + 18, bottom: 36 });
+		expect(plateReach({ side: "above", tags: ["a", "b"] }).top).toBe(100);
+		expect(plateReach({ side: "above", tags: ["Ruler of the Thorny Tower"] }).left).toBeCloseTo(82.35);
+	});
+
+	it("stands the plate beside the face, as wide as its widest line, the name estimated like a tag", () => {
+		const right = plateReach({ side: "right", name: "Sela" });
+		// 36 + 14 + (6.3 * 4 + 7.2) on the right; the face alone on the other three sides.
+		expect(right.right).toBeCloseTo(82.4);
+		expect(right.left).toBe(36);
+		expect(right.top).toBe(36);
+		expect(right.bottom).toBe(36);
+		expect(plateReach({ side: "right", name: "Sela", tags: ["Ruler of the Thorny Tower"] }).right).toBeCloseTo(214.7);
+		expect(plateReach({ side: "right", name: "x".repeat(40) }).right).toBe(36 + 14 + RELMAP_TAG_MAX_PX);
+		const left = plateReach({ side: "left", name: "" });
+		expect(left.left).toBeCloseTo(36 + 14 + 7.2);
+		expect(left.right).toBe(36);
+		// Three tags make the plate 66 tall, half 33, inside the face's 36: up and down stay the face's.
+		expect(plateReach({ side: "left", tags: ["a", "b", "c"] }).top).toBe(36);
+	});
+
+	it("ties its figures to the stylesheet's", () => {
+		expect(RELMAP_PLATE_AIR_PX).toBe(14);
+		expect(RELMAP_NAME_MAX_PX).toBe(108);
+		expect(RELMAP_TAG_MAX_PX).toBe(2 * RELMAP_NAME_MAX_PX);
 	});
 });
