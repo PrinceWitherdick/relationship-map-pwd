@@ -173,9 +173,14 @@ export function promptForLines({
 	title, buttonLabel, lines = [], hint = "", placeholder = "", rows = 3, icon = "", width = 420,
 }) {
 	// Escaped, all of it: the lines are text somebody at this table typed, shown as the box's content.
+	// ⚠ `autofocus` ON THE BOX, and not only the focus the render hook gives it below. ApplicationV2's
+	// `_postRender` focuses the window's FIRST `[autofocus]` after every hook has run, and DialogV2 puts
+	// that attribute on its default button: left to that, the Save button took the focus back off the
+	// box, and the reader's first Enter saved an empty window. The content comes before the footer, so
+	// the box is the first. (The one-line prompts above do not carry it; theirs is a separate question.)
 	const content = contentElement(`
 		<div class="relmap-text-prompt relmap-text-prompt--lines">
-			<textarea name="relmapLines" rows="${Number(rows) || 3}"
+			<textarea name="relmapLines" rows="${Number(rows) || 3}" autofocus
 			          placeholder="${escHtml(placeholder)}">${escHtml((lines ?? []).join("\n"))}</textarea>
 			${hint ? `<p class="relmap-text-prompt-lead">${escHtml(hint)}</p>` : ""}
 		</div>`);

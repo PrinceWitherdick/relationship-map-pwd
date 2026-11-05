@@ -156,7 +156,7 @@ describe("a few lines asked for in one box", () => {
 		expect(asked.ok.label).toBe("Save");
 		expect(asked.rejectClose).toBe(false);
 		const html = asked.content.innerHTML;
-		expect(html).toContain('<textarea name="relmapLines" rows="3"');
+		expect(html).toContain('<textarea name="relmapLines" rows="3" autofocus');
 		expect(html).toContain("the Elder\n&lt;b&gt;deceased&lt;/b&gt;</textarea>");
 		expect(html).not.toContain("<b>");
 		expect(html).toContain('placeholder="The Iron Knight"');
