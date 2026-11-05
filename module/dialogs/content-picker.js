@@ -145,18 +145,26 @@ export function promptForTexts({ title, buttonLabel, fields, lead = "", icon = "
 }
 
 /**
- * Ask for a few short lines at once, in one box: the tags under a person's name.
+ * Ask for a few short lines at once, in one box: the tags under a person's name. And, where the
+ * caller asks for it, one choice off a short row under them: the side of the face the name and the
+ * tags stand on.
  *
  * ONE TEXTAREA AND NOT A BOX PER LINE, because how many there are is the reader's to decide, and a
  * column of empty boxes says "fill these in". Same contract as `promptForText`, per line: every line
- * trimmed, the blank ones dropped, and `null` for the whole window dismissed. Holding the list to the
- * caller's bound is the caller's business (the store gates it on the way in, `readTags`).
+ * trimmed, the blank ones dropped, and `null` for the whole window dismissed. What comes back is
+ * `{ lines, choice }`, the choice `null` where none was asked. Holding the list to the caller's bound
+ * is the caller's business (the store gates it on the way in, `readTags`).
  *
  * ⚠ ENTER MAKES A LINE HERE, AND SAVE IS THE BUTTON. A textarea never submits on Enter, and DialogV2
  * keys only Escape, so this window cannot be confirmed from inside the box: the hint under it says
- * so, and the button is one Tab away. And THE CARET GOES TO THE END of what is there rather than
- * selecting it all, which is `showTextPrompt`'s rule for a one-line box and the wrong one here: a
- * reader adding a second tag under a name would type over the first.
+ * so, and the button is a Tab away, or two past the row of choices. And THE CARET GOES TO THE END of
+ * what is there rather than selecting it all, which is `showTextPrompt`'s rule for a one-line box
+ * and the wrong one here: a reader adding a second tag under a name would type over the first.
+ *
+ * THE ROW OF CHOICES IS A FIELDSET OF RADIOS under the hint, one of them checked: the caller's value
+ * where it is one of the options, else the first, because a radio group with nothing checked answers
+ * nothing at all (the lesson `pickContentOption` learned). Read back through `namedItem` like the box:
+ * a form's collection answers a radio group as a RadioNodeList, whose `value` is the checked one's.
  *
  * @param {object} p
  * @param {string} p.title              Window title.
@@ -167,11 +175,23 @@ export function promptForTexts({ title, buttonLabel, fields, lead = "", icon = "
  * @param {number} [p.rows=3]           How many lines tall the box is.
  * @param {string} [p.icon]             The title bar's glyph, as a Font Awesome class list.
  * @param {number} [p.width=420]
- * @returns {Promise<string[]|null>}
+ * @param {{label: string, name: string, value: string, options: Array<{value: string, label: string}>}} [p.choice]
+ *        One choice off a short row under the hint: its legend, the field's name, the option to open
+ *        on, and the options in order.
+ * @returns {Promise<{lines: string[], choice: string|null}|null>}
  */
 export function promptForLines({
-	title, buttonLabel, lines = [], hint = "", placeholder = "", rows = 3, icon = "", width = 420,
+	title, buttonLabel, lines = [], hint = "", placeholder = "", rows = 3, icon = "", width = 420, choice = null,
 }) {
+	const picked = choice
+		? (choice.options.some(option => option.value === choice.value) ? choice.value : choice.options[0]?.value)
+		: null;
+	const row = choice
+		? `<fieldset class="relmap-text-prompt-choice">
+				<legend class="relmap-text-prompt-label">${escHtml(choice.label)}</legend>
+				${choice.options.map(option => `<label class="relmap-text-prompt-radio"><input type="radio" name="${escHtml(choice.name)}" value="${escHtml(option.value)}"${option.value === picked ? " checked" : ""}><span>${escHtml(option.label)}</span></label>`).join("")}
+			</fieldset>`
+		: "";
 	// Escaped, all of it: the lines are text somebody at this table typed, shown as the box's content.
 	// ⚠ `autofocus` ON THE BOX, and not only the focus the render hook gives it below. ApplicationV2's
 	// `_postRender` focuses the window's FIRST `[autofocus]` after every hook has run, and DialogV2 puts
@@ -183,6 +203,7 @@ export function promptForLines({
 			<textarea name="relmapLines" rows="${Number(rows) || 3}" autofocus
 			          placeholder="${escHtml(placeholder)}">${escHtml((lines ?? []).join("\n"))}</textarea>
 			${hint ? `<p class="relmap-text-prompt-lead">${escHtml(hint)}</p>` : ""}
+			${row}
 		</div>`);
 
 	return foundry.applications.api.DialogV2.prompt({
@@ -201,8 +222,12 @@ export function promptForLines({
 		ok: {
 			label: buttonLabel,
 			class: CTA_CLASS,
-			// Through `namedItem`, as `showTextPrompt` reads its boxes, and for the same reason.
-			callback: (event, button) => splitLines(button.form.elements.namedItem("relmapLines")?.value),
+			// Through `namedItem`, as `showTextPrompt` reads its boxes, and for the same reason. A radio
+			// group that somehow says nothing answers what was checked when the window opened.
+			callback: (event, button) => ({
+				lines: splitLines(button.form.elements.namedItem("relmapLines")?.value),
+				choice: choice ? (button.form.elements.namedItem(choice.name)?.value || picked) : null,
+			}),
 		},
 		rejectClose: false,
 	});

@@ -38,7 +38,7 @@ import {
 } from "../utils/relmap-geometry.js";
 import {
 	RELMAP_DASHES, RELMAP_DASH_DEFAULT, RELMAP_DIRS, RELMAP_FLAG, RELMAP_GROUP_DASHES, RELMAP_GROUP_SHAPES, RELMAP_INKS,
-	RELMAP_LABEL_MAX, RELMAP_SEAT_MIN, RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_TAGS_MAX,
+	RELMAP_LABEL_MAX, RELMAP_SEAT_MIN, RELMAP_SIDES, RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_TAGS_MAX,
 	addEdgePatch, addGroupPatch,
 	addNodePatch, addNodesPatch, dropEdgePatch, dropGroupPatch, dropNodePatch, edgePatch, fanIndexes,
 	groupMembersPatch, groupPatch, nodePatch, readSeat, seatArrivals, takenSpots,
@@ -4630,9 +4630,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 	}
 
 	/**
-	 * The tags under somebody's name -- "deceased", "The Iron Knight" -- asked for in one small
-	 * window and written at once. Reached from the pen on the face and from a double click on the
-	 * name (utils/relmap-drag.js), which hand over the person's id and nothing else.
+	 * The tags under somebody's name -- "deceased", "The Iron Knight" -- and the side of the face
+	 * the name and tags stand on, asked for in one small window and written at once, as one step.
+	 * Reached from the pen on the face and from a double click on the name (utils/relmap-drag.js),
+	 * which hand over the person's id and nothing else.
 	 *
 	 * ⚠ NOT COALESCED. `record` folds a same-key change made within a moment into one step, which is
 	 * right for an arrow key held down and wrong here: two deliberate Saves a second apart are two
@@ -4647,7 +4648,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const node = graph.nodes[id];
 		if (!node) return;
 		const name = this._nameOf(graph, id);
-		const lines = await promptForLines({
+		const answer = await promptForLines({
 			title: format("RELMAP.tags.title", { name }),
 			buttonLabel: localize("RELMAP.tags.go"),
 			lines: node.tags,
@@ -4655,9 +4656,17 @@ export class RelationshipMapWindow extends RelmapDialog {
 			placeholder: localize("RELMAP.tags.placeholder"),
 			rows: RELMAP_TAGS_MAX,
 			icon: "fa-solid fa-pen",
+			// And where the plate of name and tags stands round the face: the store's four sides in
+			// its order, the stored one checked.
+			choice: {
+				label: localize("RELMAP.tags.where"),
+				name: "relmapSide",
+				value: node.side,
+				options: RELMAP_SIDES.map(side => ({ value: side, label: localize(`RELMAP.tags.side.${side}`) })),
+			},
 		});
-		if (lines === null || !this._stillOn(doc)) return;
-		await this._write(nodePatch(id, { tags: lines }), {
+		if (answer === null || !this._stillOn(doc)) return;
+		await this._write(nodePatch(id, { tags: answer.lines, side: answer.choice }), {
 			label: format("RELMAP.history.tagged", { name }),
 			onto: { kind: "nodes", id },
 		});

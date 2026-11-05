@@ -3772,6 +3772,34 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    under a name; the one-line boxes beside it are already in the window's own type. */
 .relmap-text-prompt--lines textarea { resize: vertical; font: inherit; }
 
+/* THE ROW OF CHOICES under the box (where the name and tags stand): a legend on its own line and the
+   radios in one row under it.
+   ⚠ `flex-direction: row` SAID, and not left to the default: core's `@layer blocks.base` lays every
+   `.standard-form fieldset` out as a column with a border, a pad and a gap of its own (foundry2.css),
+   and a DialogV2's content sits in a `.standard-form`. This stylesheet is unlayered, so it wins on
+   every property it declares and on none it leaves out: without the row the four would stack. */
+.relmap-text-prompt-choice {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 14px;
+	border: 0;
+	margin: 0;
+	padding: 0;
+}
+
+.relmap-text-prompt-choice legend {
+	padding: 0;
+	margin-bottom: 2px;
+}
+
+.relmap-text-prompt-radio {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
 /* Several labelled boxes: each label sits on its own line above its box. */
 .relmap-text-prompt--fields {
 	display: flex;

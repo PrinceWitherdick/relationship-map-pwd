@@ -48,15 +48,16 @@ vi.mock("../../module/utils/foundry-compat.js", () => ({
 }));
 /** What the shared chooser was ASKED, which is the whole of what Tidy up's question is. The window
  * never sees a dialog here; the picker's own behaviour is content-prompt.test.js's business. */
-const chooser = { asked: [], answer: null, linesAsked: [], lines: null, onLines: null };
+const chooser = { asked: [], answer: null, linesAsked: [], lines: null, side: null, onLines: null };
 vi.mock("../../module/dialogs/content-picker.js", () => ({
 	pickContentOption: config => { chooser.asked.push(config); return Promise.resolve(chooser.answer); },
 	promptForText: () => Promise.resolve(null),
 	promptForTexts: () => Promise.resolve(null),
+	// The lines window answers `{ lines, choice }`, or null for a dismissal; the choice is the side.
 	promptForLines: config => {
 		chooser.linesAsked.push(config);
 		chooser.onLines?.();
-		return Promise.resolve(chooser.lines);
+		return Promise.resolve(chooser.lines === null ? null : { lines: chooser.lines, choice: chooser.side ?? "below" });
 	},
 }));
 
@@ -4839,19 +4840,21 @@ describe("a question that outlives the board it was asked about", () => {
 // labelled for the undo button, and a window answered after the reader left the board writes nothing.
 describe("the tags under somebody's name", () => {
 	const TAGS_KEY = "flags.relationship-map-pwd.relationshipMap.nodes.elena.tags";
+	const SIDE_KEY = "flags.relationship-map-pwd.relationshipMap.nodes.elena.side";
 	const was = globalThis.ui;
 	beforeEach(() => {
 		globalThis.game.i18n = TABLE;
 		globalThis.ui = { notifications: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
 		chooser.linesAsked = [];
 		chooser.lines = null;
+		chooser.side = null;
 		chooser.onLines = null;
 		forgetAllHistory();
 	});
 	afterEach(() => { globalThis.ui = was; forgetAllHistory(); });
 
 	// On a living board, so the step is recorded and can be taken back: the one leaf `tags` goes
-	// forward as the new list and back as the old one, whole.
+	// forward as the new list and back as the old one, whole; the side rides in the same write.
 	it("opens on the tags they have, named after them, writes the lines saved, and Undo takes them back", async () => {
 		const graph = structuredClone(TWO_PEOPLE);
 		graph.nodes.elena.tags = ["the Elder"];
@@ -4862,8 +4865,15 @@ describe("the tags under somebody's name", () => {
 		expect(chooser.linesAsked).toHaveLength(1);
 		expect(chooser.linesAsked[0].title).toBe(TABLE.format("RELMAP.tags.title", { name: "Elena" }));
 		expect(chooser.linesAsked[0].lines).toEqual(["the Elder"]);
+		// The row of sides: the store's four in its order, the stored one (below) to open on.
+		expect(chooser.linesAsked[0].choice.name).toBe("relmapSide");
+		expect(chooser.linesAsked[0].choice.value).toBe("below");
+		expect(chooser.linesAsked[0].choice.options.map(option => option.value)).toEqual(["below", "above", "left", "right"]);
+		expect(chooser.linesAsked[0].choice.options[2].label).toBe(TABLE.localize("RELMAP.tags.side.left"));
+		expect(chooser.linesAsked[0].choice.label).toBe(TABLE.localize("RELMAP.tags.where"));
 		expect(page.updates).toHaveLength(1);
 		expect(page.updates[0][TAGS_KEY]).toEqual(["the Elder", "deceased"]);
+		expect(page.updates[0][SIDE_KEY]).toBe("below");
 		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder", "deceased"]);
 		expect(app._history.peekUndo().label).toBe(TABLE.format("RELMAP.history.tagged", { name: "Elena" }));
 
@@ -4871,6 +4881,27 @@ describe("the tags under somebody's name", () => {
 		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder"]);
 		await app._stepHistory("forward");
 		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+	});
+
+	// The side chosen goes in the same write as the lines, so the two are one step for Undo.
+	it("writes the side chosen with the lines in one step, and Undo puts the old side back", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { entry, pages: [page] } = livingMap([{ id: "p1", name: "Stillwater", graph }]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["the Elder"];
+		chooser.side = "right";
+		await app._tagPerson("elena");
+		expect(page.updates).toHaveLength(1);
+		expect(page.updates[0][SIDE_KEY]).toBe("right");
+		expect(page.updates[0][TAGS_KEY]).toEqual(["the Elder"]);
+		expect(readGraph(page).nodes.elena.side).toBe("right");
+		expect(app._history.peekUndo().label).toBe(TABLE.format("RELMAP.history.tagged", { name: "Elena" }));
+
+		await app._stepHistory("back");
+		expect(readGraph(page).nodes.elena.side).toBe("below");
+		await app._stepHistory("forward");
+		expect(readGraph(page).nodes.elena.side).toBe("right");
 	});
 
 	it("writes nothing when the window is dismissed", async () => {

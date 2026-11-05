@@ -30,12 +30,12 @@ const boardContext = () => ({
 			id: "n1", name: "Elena", tags: ["the Elder", "Keeper of <the> Ford"], side: "below", left: 20, top: 30,
 			img: "elena.webp", imgStyle: "position:absolute;width:200%", missing: false,
 			tooltip: "Elena. Click to open their sheet.", linkLabel: "Draw a line from Elena",
-			removeLabel: "Take Elena off this map", tagsLabel: "Edit the tags under Elena",
+			removeLabel: "Take Elena off this map", tagsLabel: "Edit the tags for Elena",
 		},
 		{
 			id: "n2", name: "Stefan", tags: [], side: "right", left: 70, top: 30, img: "", imgStyle: "", missing: true,
 			tooltip: "Stefan", linkLabel: "Draw a line from Stefan",
-			removeLabel: "Take Stefan off this map", tagsLabel: "Edit the tags under Stefan",
+			removeLabel: "Take Stefan off this map", tagsLabel: "Edit the tags for Stefan",
 		},
 	],
 	edges: [{
@@ -145,7 +145,7 @@ describe("the board template", () => {
 		const html = render(boardContext());
 		expect(html).toContain('data-relmap-tags="n1"');
 		expect(html).toContain('data-relmap-tags="n2"');
-		expect(html).toContain('data-tooltip-text="Edit the tags under Elena" aria-label="Edit the tags under Elena"');
+		expect(html).toContain('data-tooltip-text="Edit the tags for Elena" aria-label="Edit the tags for Elena"');
 		expect(render({ ...boardContext(), canEdit: false })).not.toContain("data-relmap-tags");
 	});
 

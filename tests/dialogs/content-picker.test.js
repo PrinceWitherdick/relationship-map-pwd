@@ -143,16 +143,16 @@ describe("one name asked", () => {
 });
 
 // THE TAGS UNDER A NAME, asked for as a few lines in one box. The contract the window relies on: the
-// box opens on the lines it was given, what comes back is the lines typed (trimmed, blanks dropped),
-// null for a dismissal, and typed text is never read as markup.
+// box opens on the lines it was given, what comes back is the lines typed (trimmed, blanks dropped)
+// with the choice beside them, null for a dismissal, and typed text is never read as markup.
 describe("a few lines asked for in one box", () => {
 	it("opens on the lines it was given, one per line, and never reads them as markup", async () => {
 		await promptForLines({
-			title: "Tags under Elena", buttonLabel: "Save", lines: ["the Elder", "<b>deceased</b>"],
+			title: "Tags for Elena", buttonLabel: "Save", lines: ["the Elder", "<b>deceased</b>"],
 			hint: "One per line.", placeholder: "The Iron Knight",
 		});
 		expect(foundry.applications.api.DialogV2.prompt).toHaveBeenCalledTimes(1);
-		expect(asked.window.title).toBe("Tags under Elena");
+		expect(asked.window.title).toBe("Tags for Elena");
 		expect(asked.ok.label).toBe("Save");
 		expect(asked.rejectClose).toBe(false);
 		const html = asked.content.innerHTML;
@@ -163,11 +163,43 @@ describe("a few lines asked for in one box", () => {
 		expect(html).toContain(">One per line.</p>");
 	});
 
-	it("answers the lines typed, trimmed, with the blank ones dropped", async () => {
+	it("answers the lines typed, trimmed, with the blank ones dropped, and no choice where none was asked", async () => {
 		await promptForLines({ title: "Tags", buttonLabel: "Save" });
-		expect(press({ relmapLines: "  the Elder \n\n deceased\r\n   \n" })).toEqual(["the Elder", "deceased"]);
-		expect(press({ relmapLines: "" })).toEqual([]);
-		expect(press({})).toEqual([]);
+		expect(asked.content.innerHTML).not.toContain("fieldset");
+		expect(press({ relmapLines: "  the Elder \n\n deceased\r\n   \n" })).toEqual({ lines: ["the Elder", "deceased"], choice: null });
+		expect(press({ relmapLines: "" })).toEqual({ lines: [], choice: null });
+		expect(press({})).toEqual({ lines: [], choice: null });
+	});
+
+	// ONE CHOICE OFF A SHORT ROW with the lines (where the name and tags stand): a fieldset of radios
+	// under the hint, the caller's value checked where it is one of the options and the first otherwise,
+	// and the answer carries the lines and the choice together.
+	it("asks one choice off a row of radios under the lines, and answers both together", async () => {
+		const choice = { label: "Where <they> go", name: "relmapSide", value: "right", options: [
+			{ value: "below", label: "Below" }, { value: "above", label: "Above" },
+			{ value: "left", label: "Left" }, { value: "right", label: "Right" },
+		] };
+		await promptForLines({ title: "Tags", buttonLabel: "Save", hint: "One per line.", choice });
+		const html = asked.content.innerHTML;
+		expect(html).toContain('<legend class="relmap-text-prompt-label">Where &lt;they&gt; go</legend>');
+		expect(html.match(/<input type="radio" name="relmapSide"/g)).toHaveLength(4);
+		expect(html).toContain('<input type="radio" name="relmapSide" value="right" checked><span>Right</span>');
+		expect(html.match(/ checked>/g)).toHaveLength(1);
+		expect(html.indexOf("relmapLines")).toBeLessThan(html.indexOf("One per line."));
+		expect(html.indexOf("One per line.")).toBeLessThan(html.indexOf("relmap-text-prompt-choice"));
+		expect(press({ relmapLines: "a\nb", relmapSide: "left" })).toEqual({ lines: ["a", "b"], choice: "left" });
+		// A form that says nothing about the row answers what was checked when it opened.
+		expect(press({ relmapLines: "" })).toEqual({ lines: [], choice: "right" });
+	});
+
+	it("checks the first option when the value it is given is none of them", async () => {
+		await promptForLines({ title: "Tags", buttonLabel: "Save", choice: {
+			label: "Where", name: "relmapSide", value: "sideways",
+			options: [{ value: "below", label: "Below" }, { value: "above", label: "Above" }],
+		} });
+		expect(asked.content.innerHTML).toContain('value="below" checked>');
+		expect(asked.content.innerHTML.match(/ checked>/g)).toHaveLength(1);
+		expect(press({})).toEqual({ lines: [], choice: "below" });
 	});
 
 	// The caret goes to the END of what is there: a reader adding a line must not type over the first.
