@@ -22,7 +22,9 @@ const PREFIX = relmapPath();
 function graph(over = {}) {
 	return normalizeGraph({
 		nodes: {
-			elena: { uuid: "Actor.a1", name: "Elena", img: "e.webp", x: 20, y: 30 },
+			// ⚠ ELENA CARRIES A TAG, for the same reason the line below carries a size: a person
+			// put back whole is compared field by field, so a field `addNodePatch` forgets fails HERE.
+			elena: { uuid: "Actor.a1", name: "Elena", img: "e.webp", x: 20, y: 30, tags: ["the Elder"] },
 			stefan: { uuid: "Actor.b2", name: "Stefan", img: "s.webp", x: 70, y: 30 },
 		},
 		// ⚠ THE LINE CARRIES A SIZE OF ITS OWN, which is not decoration in a fixture. Putting a
@@ -93,6 +95,22 @@ describe("what one write does, and what would put it back", () => {
 		const back = afterPatch(after, stepPatch(after, change.back));
 		expect(back.edges.link1.label).toBe("exes");
 		expect(back.edges.link1.ink).toBe("rose");
+	});
+
+	// The tags under a name are the one leaf that is a LIST. The document replaces an array leaf
+	// whole, so the step back is the old list whole too, and nothing of the new one is left standing.
+	it("puts the tags under a name back as they were", () => {
+		const before = graph();
+		const patch = nodePatch("elena", { tags: ["the Elder", "deceased"] });
+		const change = describeWrite(before, patch);
+		const after = afterPatch(before, patch);
+		expect(after.nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+
+		const back = afterPatch(after, stepPatch(after, change.back));
+		expect(back.nodes.elena.tags).toEqual(["the Elder"]);
+		expect(back.nodes.elena.name).toBe("Elena");
+		const again = afterPatch(back, stepPatch(back, change.forward));
+		expect(again.nodes.elena.tags).toEqual(["the Elder", "deceased"]);
 	});
 });
 

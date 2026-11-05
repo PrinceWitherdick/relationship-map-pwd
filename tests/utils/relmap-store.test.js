@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
 	RELMAP_DASH_DEFAULT, RELMAP_DIR_DEFAULT, RELMAP_INKS, RELMAP_INK_DEFAULT, RELMAP_LABEL_MAX,
 	RELMAP_SEAT_AUTO, RELMAP_SEAT_MAX, RELMAP_SEAT_MIN,
-	RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_SIZE_NONE, RELMAP_VERSION,
+	RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_SIZE_NONE, RELMAP_TAGS_MAX, RELMAP_TAG_MAX,
+	RELMAP_VERSION,
 	addEdgePatch, addNodePatch, dropEdgePatch, dropNodePatch, edgePatch, edgesBetween,
 	edgesTouching, emptyGraph, fanIndexes, isSafeId, nodePatch, normalizeGraph,
-	readSeat, relmapPath,
+	readSeat, readTags, relmapPath,
 } from "../../module/relmap/relmap-store.js";
 import { RELMAP_CAPTION_PX, RELMAP_REACH_MAX, RELMAP_REACH_MIN } from "../../module/utils/relmap-geometry.js";
 
@@ -151,8 +152,11 @@ describe("the shape of a write", () => {
 		const patch = addNodePatch("elena", { uuid: "Actor.a1", name: "Elena", x: 20, y: 30 });
 		expect(Object.keys(patch).sort()).toEqual([
 			`${PREFIX}.nodes.elena.img`, `${PREFIX}.nodes.elena.name`, `${PREFIX}.nodes.elena.note`,
-			`${PREFIX}.nodes.elena.uuid`, `${PREFIX}.nodes.elena.x`, `${PREFIX}.nodes.elena.y`,
+			`${PREFIX}.nodes.elena.tags`, `${PREFIX}.nodes.elena.uuid`, `${PREFIX}.nodes.elena.x`,
+			`${PREFIX}.nodes.elena.y`,
 		].sort());
+		// A person added whole carries no tags yet, and the field is there for the undo to record.
+		expect(patch[`${PREFIX}.nodes.elena.tags`]).toEqual([]);
 	});
 
 	it("refuses a link from somebody to themselves", () => {
@@ -305,7 +309,7 @@ describe("reading a stored map back", () => {
 			edges: {},
 		});
 		expect(Object.keys(g.nodes.elena).sort())
-			.toEqual(["img", "name", "note", "uuid", "x", "y"]);
+			.toEqual(["img", "name", "note", "tags", "uuid", "x", "y"]);
 	});
 
 	it("reads a person with no actor behind them, which is a real case", () => {
@@ -324,6 +328,44 @@ describe("reading a stored map back", () => {
 	it("holds a coordinate stored past reach to the rail", () => {
 		const g = normalizeGraph({ nodes: { elena: { x: 9000, y: -9000 } } });
 		expect(g.nodes.elena).toMatchObject({ x: RELMAP_REACH_MAX, y: RELMAP_REACH_MIN });
+	});
+
+	// THE TAGS UNDER A NAME. One stored shape, a list of short lines, and every other shape reads as
+	// no tags at all rather than as one tag: a string here is not a tag that lost its brackets, it is
+	// a second format nobody wrote, and reading it would quietly keep it.
+	it("reads a person's tags, and a person with none has an empty list and not a missing field", () => {
+		const g = normalizeGraph({ nodes: {
+			elena: { x: 1, y: 1, tags: ["the Elder", "deceased"] },
+			stefan: { x: 2, y: 2 },
+		} });
+		expect(g.nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+		expect(g.nodes.stefan.tags).toEqual([]);
+	});
+
+	it("keeps only so many tags, each only so long, and drops the blank ones", () => {
+		const long = "x".repeat(RELMAP_TAG_MAX + 10);
+		expect(readTags([long])).toEqual(["x".repeat(RELMAP_TAG_MAX)]);
+		expect(readTags(["one", "two", "three", "four"])).toHaveLength(RELMAP_TAGS_MAX);
+		expect(readTags(["one", "two", "three", "four"])).toEqual(["one", "two", "three"]);
+		// A blank line is not a tag, so it is not one of the three either.
+		expect(readTags(["", "  ", "one", "two", "three", "four"])).toEqual(["one", "two", "three"]);
+		// A tag is one line by definition: a line break inside one collapses to a space.
+		expect(readTags(["The Iron\n  Knight ", 7])).toEqual(["The Iron Knight", "7"]);
+	});
+
+	it("reads anything that is not a list of tags as no tags", () => {
+		expect(readTags("deceased")).toEqual([]);
+		expect(readTags({ 0: "deceased" })).toEqual([]);
+		expect(readTags(null)).toEqual([]);
+		expect(readTags(undefined)).toEqual([]);
+		expect(normalizeGraph({ nodes: { elena: { x: 1, y: 1, tags: "deceased" } } }).nodes.elena.tags)
+			.toEqual([]);
+	});
+
+	it("gates the tags a patch writes the same way", () => {
+		expect(nodePatch("elena", { tags: "deceased" })[`${PREFIX}.nodes.elena.tags`]).toEqual([]);
+		expect(nodePatch("elena", { tags: ["a", "b", "c", "d"] })[`${PREFIX}.nodes.elena.tags`])
+			.toEqual(["a", "b", "c"]);
 	});
 
 	it("keeps every ink it ships and replaces any it does not", () => {

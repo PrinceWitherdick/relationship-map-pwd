@@ -24,7 +24,7 @@ export const ASPECT = 1.25;
 export const apart = (a, b) => Math.hypot(a.left - b.left, (a.top - b.top) / ASPECT);
 
 /** One person on the board, whole, so a fixture is never missing a field the reader guards on. */
-const NODE = { uuid: null, name: "", img: "", x: 50, y: 50, note: "" };
+const NODE = { uuid: null, name: "", img: "", x: 50, y: 50, note: "", tags: [] };
 
 /** One line, whole, and with every field a stored edge actually carries. */
 const EDGE = { a: "", b: "", label: "", ink: "slate", dir: "none", kin: "", src: "", note: "" };
