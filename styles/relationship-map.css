@@ -1913,7 +1913,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 .relmap-face,
 .relmap-handle,
 .relmap-bin,
-.relmap-name { pointer-events: auto; }
+.relmap-name,
+.relmap-tag { pointer-events: auto; }
 
 /* THE RIM IS ITS OWN TOKEN AND NOT `--relmap-rule`, WHICH EVERY OTHER LINE IN THIS WINDOW READS. That
    one is a HAIRLINE between surfaces, tuned to be barely there at 1px; this is a 3px rim drawn ROUND A
@@ -2016,6 +2017,39 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	color: var(--relmap-text-body);
 	font-size: 12px;
 	line-height: 1.5;
+	text-align: center;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* THE TAGS UNDER THE NAME: "deceased", "The Iron Knight". Hung the way the name is and for the same
+   reason, one line each, each placed by its index (`--relmap-tag-i`, written by the board partial)
+   so the stack's pitch lives here beside the name's own figures: the name sits 2px under the face
+   and is 18px tall (12px type at 1.5), so the first tag starts 20px under the face and each one is
+   16px. The name's width cap and its pad of page colour, so a tag crossing a line is read over it.
+
+   ⚠ relmap-geometry.js KNOWS THE PITCH. A group's outline and the board's frame reach 16px further
+   down for every tag a person wears (`tagsBelowPx`); change it here and there together.
+
+   THE QUIET INK AND NOT THE BODY'S, so the name stays the thing a reader finds first. It is the token
+   the captions' quiet words use, held to 4.5:1 on every theme and both boards by
+   tests/styles/relationship-map-inks.test.js. Never bold: the name's `is-selected` rule is the
+   name's. And a press on a tag moves the person, as a press on the name does (the pointer-events
+   line above). */
+.relmap-tag {
+	position: absolute;
+	top: calc(100% + 20px + var(--relmap-tag-i, 0) * 16px);
+	left: 50%;
+	padding: 0 0.3em;
+	width: max-content;
+	max-width: 108px;
+	transform: translateX(-50%);
+	border-radius: var(--relmap-radius-sm);
+	background: var(--relmap-page);
+	color: var(--relmap-text-quiet);
+	font-size: 12px;
+	line-height: 16px;
 	text-align: center;
 	overflow: hidden;
 	text-overflow: ellipsis;

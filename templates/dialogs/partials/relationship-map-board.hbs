@@ -233,6 +233,14 @@
     </span>
   </button>
   <span class="relmap-name">{{name}}</span>
+  {{!-- THE TAGS UNDER THE NAME -- "deceased", "The Iron Knight" -- one line each, hung out of the
+        flow for the reason the name is (`.relmap-name` in the stylesheet): anything in the flow
+        makes the node taller than its circle and carries the circle off the coordinate every line
+        is aimed at. Each is its own absolute box placed by its index through a custom property, so
+        the stylesheet owns the pitch and the geometry can agree with it in one place. --}}
+  {{#each tags}}
+  <span class="relmap-tag" style="--relmap-tag-i:{{@index}}">{{this}}</span>
+  {{/each}}
   {{!-- Focusable, and it does something on a plain CLICK as well as on a drag: dragging it to
         another portrait draws the line, and clicking it asks who to draw to. Drag is the quick way
         and not the only way, which is what keeps the board usable from a keyboard and on a touch

@@ -295,11 +295,30 @@ export function holdTravel(moved, from = []) {
 
 /**
  * How much room round a portrait's CENTRE the board must show for that person to be seen whole, in
- * board pixels: the face, its name hung underneath, and a margin.
+ * board pixels: the face, its name hung underneath, and a margin. A person wearing tags needs a
+ * line more below for each of them: `tagsBelowPx`, added per person and not here, so an untagged
+ * board frames exactly as it always did.
  */
 const BOUNDS_PAD_X = 90;
 const BOUNDS_PAD_TOP = 60;
 const BOUNDS_PAD_BOTTOM = 90;
+
+/**
+ * How much further down one person's TAGS reach, in board pixels: one line each, and nothing at
+ * all for the ordinary person with none.
+ *
+ * THE PITCH IS THE STYLESHEET'S. `.relmap-tag` hangs each tag 16px under the one before, starting at
+ * the name's foot, so the figure here is that rule's and changes with it. Read off whatever a caller
+ * hands over as a node: the drag and resize previews patch coordinates into a read graph's own
+ * nodes, which carry the field, and the tests pass bare `{x, y}` points, which do not -- hence
+ * `Array.isArray` and not a bare length. The store caps the list on every read (`readTags`), so
+ * there is no second cap here.
+ */
+const TAG_LINE_PX = 16;
+function tagsBelowPx(node) {
+	const tags = node?.tags;
+	return Array.isArray(tags) ? TAG_LINE_PX * tags.length : 0;
+}
 
 /**
  * The part of the board that has anything on it, in board PIXELS: the sheet, grown to take in
@@ -328,7 +347,7 @@ export function boardBounds(nodes = [], { width = RELMAP_BOARD_WIDTH, height = R
 		box.left = Math.min(box.left, x - BOUNDS_PAD_X);
 		box.right = Math.max(box.right, x + BOUNDS_PAD_X);
 		box.top = Math.min(box.top, y - BOUNDS_PAD_TOP);
-		box.bottom = Math.max(box.bottom, y + BOUNDS_PAD_BOTTOM);
+		box.bottom = Math.max(box.bottom, y + BOUNDS_PAD_BOTTOM + tagsBelowPx(node));
 	}
 	for (const extra of boxes ?? []) {
 		if (![extra?.left, extra?.top, extra?.right, extra?.bottom].every(Number.isFinite)) continue;
@@ -343,7 +362,13 @@ export function boardBounds(nodes = [], { width = RELMAP_BOARD_WIDTH, height = R
 /**
  * HOW FAR A GROUP'S OUTLINE STANDS OFF ONE MEMBER'S CENTRE, in board pixels: the face, the name hung
  * under it (`.relmap-name` is capped at 108px wide and sits 2px below the face, 18px tall),
- * and a margin of paper so the outline never grazes either.
+ * and a margin of paper so the outline never grazes either. A member wearing tags reaches a line
+ * further down for each (`tagsBelowPx`, added per member in `groupOutline`).
+ *
+ * ⚠ THE FLOOR A GROUP CAN BE SHRUNK TO DOES NOT GROW WITH THEM. `RELMAP_GROUP_MIN_H` and
+ * `groupMinSize` are sized for one untagged person, so a group dragged in to its floor round a
+ * tagged member leaves their tags standing outside its line. Accepted: the floor is a rail for a
+ * resize the reader is making by hand, and the snug outline it starts from is right.
  */
 const GROUP_REACH_X = 54;
 const GROUP_REACH_TOP = 36;
@@ -621,7 +646,7 @@ export function groupOutline(members = [], {
 		left = Math.min(left, x - GROUP_REACH_X);
 		right = Math.max(right, x + GROUP_REACH_X);
 		top = Math.min(top, y - GROUP_REACH_TOP);
-		bottom = Math.max(bottom, y + GROUP_REACH_BOTTOM);
+		bottom = Math.max(bottom, y + GROUP_REACH_BOTTOM + tagsBelowPx(member));
 	}
 	if (!Number.isFinite(left)) return null;
 	left -= RELMAP_GROUP_PAD_PX; right += RELMAP_GROUP_PAD_PX; bottom += RELMAP_GROUP_PAD_PX;

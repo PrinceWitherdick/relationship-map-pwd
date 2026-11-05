@@ -1079,6 +1079,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 			return {
 				id,
 				name,
+				// The tags under the name, as stored: text somebody at this table typed, which the
+				// partial escapes on the way out.
+				tags: node.tags,
 				left: node.x,
 				top: node.y,
 				img: portrait.src,

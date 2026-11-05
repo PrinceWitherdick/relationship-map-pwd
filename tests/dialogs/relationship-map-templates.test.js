@@ -25,13 +25,13 @@ const WINDOW = "templates/dialogs/relationship-map.hbs";
 const boardContext = () => ({
 	nodes: [
 		{
-			id: "n1", name: "Elena", left: 20, top: 30, img: "elena.webp",
-			imgStyle: "position:absolute;width:200%", missing: false,
+			id: "n1", name: "Elena", tags: ["the Elder", "Keeper of <the> Ford"], left: 20, top: 30,
+			img: "elena.webp", imgStyle: "position:absolute;width:200%", missing: false,
 			tooltip: "Elena. Click to open their sheet.", linkLabel: "Draw a line from Elena",
 			removeLabel: "Take Elena off this map",
 		},
 		{
-			id: "n2", name: "Stefan", left: 70, top: 30, img: "", imgStyle: "", missing: true,
+			id: "n2", name: "Stefan", tags: [], left: 70, top: 30, img: "", imgStyle: "", missing: true,
 			tooltip: "Stefan", linkLabel: "Draw a line from Stefan",
 			removeLabel: "Take Stefan off this map",
 		},
@@ -95,6 +95,18 @@ describe("the board template", () => {
 		expect(html).toContain('viewBox="0 0 10 10"');
 		expect(html).toContain('d="M1 1.2 L9 5 L1 8.8 Z"');
 		expect(html).not.toContain('viewBox="0 0  "');
+	});
+
+	// THE TAGS UNDER A NAME: one span each, in the order they were typed, placed by index so the
+	// stylesheet owns the pitch, and escaped on the way out -- a tag is text somebody at this table
+	// typed. Stefan has none, so the count is Elena's two and nothing else.
+	it("prints every tag under its person, in order, placed by index, and never as markup", () => {
+		const html = render(boardContext());
+		expect(html).toContain('<span class="relmap-tag" style="--relmap-tag-i:0">the Elder</span>');
+		expect(html).toContain('<span class="relmap-tag" style="--relmap-tag-i:1">Keeper of &lt;the&gt; Ford</span>');
+		expect(html.indexOf("the Elder")).toBeLessThan(html.indexOf("Keeper of"));
+		expect(html.match(/class="relmap-tag"/g)).toHaveLength(2);
+		expect(html).not.toContain("<the>");
 	});
 
 	// Same reach, for the flag that decides whether the link handles exist at all.
@@ -1121,6 +1133,13 @@ describe("a portrait's box is the circle and nothing else", () => {
 	// carrying the circle ten pixels off the coordinate every line is aimed at.
 	it("hangs the name out of the flow rather than stacking it under the face", () => {
 		expect(rule("name")).toMatch(/position:\s*absolute/);
+	});
+
+	// And the tags under it, for the same reason: three lines in the flow would carry the circle
+	// twenty-four pixels off its coordinate.
+	it("hangs the tags out of the flow too, at the stylesheet's own pitch", () => {
+		expect(rule("tag")).toMatch(/position:\s*absolute/);
+		expect(rule("tag")).toMatch(/--relmap-tag-i/);
 	});
 });
 

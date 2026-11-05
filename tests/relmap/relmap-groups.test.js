@@ -309,6 +309,24 @@ describe("the outline round a group", () => {
 		expect(groupOutline([], { board })).toBeNull();
 	});
 
+	// THE TAGS UNDER A NAME hang lower than the name does, one 16px line each, and the outline has to
+	// reach past them or the words stand on its line. Per member, so an untagged group is drawn
+	// exactly as it always was, and the tagged member only matters where they are the lowest.
+	it("reaches 16px further down for every tag its lowest member wears", () => {
+		const plain = groupOutline([at(20, 30), at(40, 50)], { board });
+		const tagged = groupOutline([at(20, 30), { x: 40, y: 50, tags: ["deceased", "the Elder"] }], { board });
+		expect(tagged.bottom - plain.bottom).toBeCloseTo(32);
+		expect(tagged.top).toBe(plain.top);
+		expect(tagged.left).toBe(plain.left);
+		expect(tagged.right).toBe(plain.right);
+		// A tag on the HIGHER member changes nothing: the lower one's name still reaches furthest.
+		const high = groupOutline([{ x: 20, y: 30, tags: ["deceased"] }, at(40, 50)], { board });
+		expect(high.bottom).toBe(plain.bottom);
+		// And whatever is not a list of tags is no tags at all.
+		const junk = groupOutline([at(20, 30), { x: 40, y: 50, tags: "deceased" }], { board });
+		expect(junk.bottom).toBe(plain.bottom);
+	});
+
 	it("stands a group a step clear of an outline it contains", () => {
 		const members = [at(20, 30), at(40, 50)];
 		const flat = groupOutline(members, { board });

@@ -77,6 +77,18 @@ describe("the part of the board with anything on it", () => {
 	it("skips a person with no place at all rather than framing nowhere", () => {
 		expect(boardBounds([{ x: NaN, y: 3 }], sheet)).toEqual({ left: 0, top: 0, right: 1200, bottom: 960 });
 	});
+
+	// The tags under a name hang a 16px line each below it, and a frame that stopped at the name
+	// would open with somebody's "deceased" cut off at the bottom of the window.
+	it("reaches further down for the tags under a name, and only there", () => {
+		const plain = boardBounds([{ x: 50, y: 150 }], sheet);
+		const tagged = boardBounds([{ x: 50, y: 150, tags: ["deceased", "the Elder", "of the Ford"] }], sheet);
+		expect(tagged.bottom - plain.bottom).toBe(48);
+		expect(tagged.left).toBe(plain.left);
+		expect(tagged.right).toBe(plain.right);
+		expect(tagged.top).toBe(plain.top);
+		expect(boardBounds([{ x: 50, y: 150, tags: "deceased" }], sheet).bottom).toBe(plain.bottom);
+	});
 });
 
 /** The smallest element a surface will attach to, as zoom-pan-surface.test.js builds it. */
