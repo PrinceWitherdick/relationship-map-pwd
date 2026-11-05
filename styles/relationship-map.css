@@ -1914,7 +1914,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 .relmap-handle,
 .relmap-bin,
 .relmap-name,
-.relmap-tag { pointer-events: auto; }
+.relmap-tag,
+.relmap-pen { pointer-events: auto; }
 
 /* THE RIM IS ITS OWN TOKEN AND NOT `--relmap-rule`, WHICH EVERY OTHER LINE IN THIS WINDOW READS. That
    one is a HAIRLINE between surfaces, tuned to be barely there at 1px; this is a 3px rim drawn ROUND A
@@ -2096,6 +2097,39 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	border-radius: 50%;
 }
 
+/* THE PEN, for the tags under the name: the handle's twin in size, reveal and reach, on the RIGHT OF
+   THE FACE A LITTLE BELOW THE MIDDLE. Not a corner: the top-right is the handle's, the top-left is
+   the trash can's, and the two below belong to the name -- its pad can run 108px wide (x -18..90 of
+   the node's 72px box) and starts 2px under the face (y 74), so a disc on either bottom corner would
+   sit over the end of a long name on hover and take its presses. Placed by the figures instead: a
+   30px disc at right -22px / bottom 4px covers x 64..94, y 38..68, and with its 6px pad reaches y 74,
+   the name's top edge, and no further; its centre stands 46px off the face's, as the handle's does,
+   and 50px off the handle's own, so the two are never neighbours. */
+.relmap-pen {
+	position: absolute;
+	right: -22px;
+	bottom: 4px;
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border-radius: 50%;
+	line-height: 0;
+	font-size: 14px;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease;
+}
+
+.relmap-node:hover .relmap-pen,
+.relmap-pen:focus-visible { opacity: 1; pointer-events: auto; }
+
+.relmap-pen::before {
+	content: "";
+	position: absolute;
+	inset: -6px;
+	border-radius: 50%;
+}
+
 /* The trash can that takes somebody off the map, on the corner OPPOSITE the handle so that the
    two are never mistaken for one another.
 
@@ -2154,7 +2188,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    rendering artefact as much as a metric. Shoot the node once with an integer clip and express the
    button rects and the ink bounds in that one coordinate system. */
 .relmap-handle > i,
-.relmap-bin > i {
+.relmap-bin > i,
+.relmap-pen > i {
 	margin: 0;
 }
 
@@ -3643,9 +3678,18 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
 
 /* ── The two small questions: a line of text, and a row off a short list ──────────────────────── */
-.relmap-text-prompt input[type="text"] {
+.relmap-text-prompt input[type="text"],
+.relmap-text-prompt textarea {
 	width: 100%;
 }
+
+/* A few lines in one box (the tags under a name), with the hint under it. */
+.relmap-text-prompt--lines {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.relmap-text-prompt--lines textarea { resize: vertical; }
 
 /* Several labelled boxes: each label sits on its own line above its box. */
 .relmap-text-prompt--fields {

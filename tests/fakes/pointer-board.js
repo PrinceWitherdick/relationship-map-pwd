@@ -164,6 +164,9 @@ export function pointerBoard({ nodes = ["n1", "n2"], edges = ["e1"], groups = []
 		const el = boardEl({ cls: ["relmap-node"], dataset: { relmapNode: id }, parent: board });
 		el.face = boardEl({ cls: ["relmap-face"], dataset: { relmapOpen: id }, parent: el });
 		el.name = boardEl({ cls: ["relmap-name"], parent: el });
+		// A TAG under the name, a sibling like the name: a press on it moves the person, a double
+		// click on it opens the tags editor, as on the name.
+		el.tag = boardEl({ cls: ["relmap-tag"], parent: el });
 		el.handle = boardEl({ cls: ["relmap-handle"], dataset: { relmapHandle: id }, parent: el });
 		// THE TRASH CAN, which is a THIRD sibling and not a child of the face either — same trap as
 		// the handle above, and the same consequence if this fake pretends otherwise. It is printed
@@ -171,6 +174,9 @@ export function pointerBoard({ nodes = ["n1", "n2"], edges = ["e1"], groups = []
 		// here models that, because what relmap-drag is written against is the ATTRIBUTE, and a
 		// fake that only produced one on an armed node could not test the press that arms it.
 		el.bin = boardEl({ cls: ["relmap-bin"], dataset: { relmapRemove: id }, parent: el });
+		// THE PEN for the tags under the name, a fourth sibling with the handle's rules, carrying its
+		// own attribute: relmap-drag reads the id off the button, never off the node round it.
+		el.pen = boardEl({ cls: ["relmap-pen"], dataset: { relmapTags: id }, parent: el });
 		portraits[id] = el;
 	}
 

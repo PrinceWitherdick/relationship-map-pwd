@@ -28,12 +28,12 @@ const boardContext = () => ({
 			id: "n1", name: "Elena", tags: ["the Elder", "Keeper of <the> Ford"], left: 20, top: 30,
 			img: "elena.webp", imgStyle: "position:absolute;width:200%", missing: false,
 			tooltip: "Elena. Click to open their sheet.", linkLabel: "Draw a line from Elena",
-			removeLabel: "Take Elena off this map",
+			removeLabel: "Take Elena off this map", tagsLabel: "Edit the tags under Elena",
 		},
 		{
 			id: "n2", name: "Stefan", tags: [], left: 70, top: 30, img: "", imgStyle: "", missing: true,
 			tooltip: "Stefan", linkLabel: "Draw a line from Stefan",
-			removeLabel: "Take Stefan off this map",
+			removeLabel: "Take Stefan off this map", tagsLabel: "Edit the tags under Stefan",
 		},
 	],
 	edges: [{
@@ -124,6 +124,16 @@ describe("the board template", () => {
 		expect(html).toContain('data-relmap-remove="n1"');
 		expect(html).toContain('data-relmap-remove="n2"');
 		expect(html).toContain('data-tooltip-text="Take Elena off this map" aria-label="Take Elena off this map"');
+	});
+
+	// THE PEN, for the tags under the name: on every editable portrait, named after the person, and
+	// not on a board the reader may only look at -- the same gate as the handle and the can.
+	it("gives every editable portrait a pen for its tags, named after the person", () => {
+		const html = render(boardContext());
+		expect(html).toContain('data-relmap-tags="n1"');
+		expect(html).toContain('data-relmap-tags="n2"');
+		expect(html).toContain('data-tooltip-text="Edit the tags under Elena" aria-label="Edit the tags under Elena"');
+		expect(render({ ...boardContext(), canEdit: false })).not.toContain("data-relmap-tags");
 	});
 
 	// ⚠ AND NOT ONE ON A BOARD THIS READER MAY ONLY LOOK AT. Same gate as the handle, and the more

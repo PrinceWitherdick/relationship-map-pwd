@@ -48,11 +48,16 @@ vi.mock("../../module/utils/foundry-compat.js", () => ({
 }));
 /** What the shared chooser was ASKED, which is the whole of what Tidy up's question is. The window
  * never sees a dialog here; the picker's own behaviour is content-prompt.test.js's business. */
-const chooser = { asked: [], answer: null };
+const chooser = { asked: [], answer: null, linesAsked: [], lines: null, onLines: null };
 vi.mock("../../module/dialogs/content-picker.js", () => ({
 	pickContentOption: config => { chooser.asked.push(config); return Promise.resolve(chooser.answer); },
 	promptForText: () => Promise.resolve(null),
 	promptForTexts: () => Promise.resolve(null),
+	promptForLines: config => {
+		chooser.linesAsked.push(config);
+		chooser.onLines?.();
+		return Promise.resolve(chooser.lines);
+	},
 }));
 
 const { RelationshipMapWindow, openRelationshipMap } =
@@ -1245,7 +1250,7 @@ describe("what a portrait says when it is rested on", () => {
 	const CAST = {
 		version: 1,
 		nodes: {
-			elena: { uuid: "Actor.a1", name: "Elena", img: "", x: 20, y: 30, note: "" },
+			elena: { uuid: "Actor.a1", name: "Elena", img: "", x: 20, y: 30, note: "", tags: ["the Elder"] },
 			ghost: { uuid: "Actor.zz", name: "Tobin", img: "", x: 40, y: 30, note: "" },
 			nobody: { uuid: null, name: "The Miller", img: "", x: 70, y: 30, note: "" },
 		},
@@ -1282,6 +1287,21 @@ describe("what a portrait says when it is rested on", () => {
 	it("says nothing of the kind about somebody who never had an actor", () => {
 		expect(tooltips().nobody).toMatch(/^The Miller\b/);
 		expect(tooltips().nobody).not.toContain("deleted actor");
+	});
+
+	// THE TAGS UNDER THE NAME are part of what the face says, so the reader on a screen reader hears
+	// them: the lines under the name are drawn, not read out. Only where there are any.
+	it("says the tags with the name, and only where there are any", () => {
+		expect(tooltips().elena).toMatch(/^Elena, the Elder\. Double-click/);
+		expect(tooltips().nobody).toMatch(/^The Miller\. /);
+	});
+
+	it("hands the board each person's tags, and the pen's own label", () => {
+		const { app } = windowFor(CAST);
+		const nodes = Object.fromEntries(app._boardContext(app._plan()).nodes.map(node => [node.id, node]));
+		expect(nodes.elena.tags).toEqual(["the Elder"]);
+		expect(nodes.nobody.tags).toEqual([]);
+		expect(nodes.elena.tagsLabel).toBe(TABLE.format("RELMAP.tags.edit", { name: "Elena" }));
 	});
 
 	// THE ONLY PLACE THE RIGHT PRESS IS TAUGHT. It is what puts the trash can on a portrait, and a
@@ -4808,6 +4828,88 @@ describe("a question that outlives the board it was asked about", () => {
 		});
 		await app._removePerson("elena");
 		expect(Object.keys(entry.updates[0]).some(key => key.includes("late"))).toBe(true);
+	});
+});
+
+// THE TAGS UNDER A NAME, asked for in one small window and written at once. What is held here is the
+// contract with the store and the undo: the lines come back as the one leaf `tags`, the step is
+// labelled for the undo button, and a window answered after the reader left the board writes nothing.
+describe("the tags under somebody's name", () => {
+	const TAGS_KEY = "flags.relationship-map-pwd.relationshipMap.nodes.elena.tags";
+	const was = globalThis.ui;
+	beforeEach(() => {
+		globalThis.game.i18n = TABLE;
+		globalThis.ui = { notifications: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+		chooser.linesAsked = [];
+		chooser.lines = null;
+		chooser.onLines = null;
+		forgetAllHistory();
+	});
+	afterEach(() => { globalThis.ui = was; forgetAllHistory(); });
+
+	// On a living board, so the step is recorded and can be taken back: the one leaf `tags` goes
+	// forward as the new list and back as the old one, whole.
+	it("opens on the tags they have, named after them, writes the lines saved, and Undo takes them back", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { entry, pages: [page] } = livingMap([{ id: "p1", name: "Stillwater", graph }]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["the Elder", "deceased"];
+		await app._tagPerson("elena");
+		expect(chooser.linesAsked).toHaveLength(1);
+		expect(chooser.linesAsked[0].title).toBe(TABLE.format("RELMAP.tags.title", { name: "Elena" }));
+		expect(chooser.linesAsked[0].lines).toEqual(["the Elder"]);
+		expect(page.updates).toHaveLength(1);
+		expect(page.updates[0][TAGS_KEY]).toEqual(["the Elder", "deceased"]);
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+		expect(app._history.peekUndo().label).toBe(TABLE.format("RELMAP.history.tagged", { name: "Elena" }));
+
+		await app._stepHistory("back");
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder"]);
+		await app._stepHistory("forward");
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+	});
+
+	it("writes nothing when the window is dismissed", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		chooser.lines = null;
+		await app._tagPerson("elena");
+		expect(entry.updates).toEqual([]);
+	});
+
+	// Saving an empty box is a real answer: it takes the tags off.
+	it("takes the tags off when the box is saved empty", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { app, entry } = windowFor(graph);
+		chooser.lines = [];
+		await app._tagPerson("elena");
+		expect(entry.updates[0][TAGS_KEY]).toEqual([]);
+	});
+
+	// The store's bound, applied on the way in, so what is stored is what the board will draw.
+	it("holds what is saved to the store's own bound", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		chooser.lines = ["one", "two", "three", "four"];
+		await app._tagPerson("elena");
+		expect(entry.updates[0][TAGS_KEY]).toEqual(["one", "two", "three"]);
+	});
+
+	it("asks nothing about somebody who is not on the board", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		await app._tagPerson("nobody-here");
+		expect(chooser.linesAsked).toEqual([]);
+		expect(entry.updates).toEqual([]);
+	});
+
+	it("writes nothing to a board the reader left while the window was up, and says so", async () => {
+		const entry = TWO_BOARDS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["deceased"];
+		chooser.onLines = () => { app._pageId = "p2"; };
+		await app._tagPerson("elena");
+		expect(entry.pages.contents.every(page => page.updates.length === 0)).toBe(true);
+		expect(globalThis.ui.notifications.info).toHaveBeenCalled();
 	});
 });
 

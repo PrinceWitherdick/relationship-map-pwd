@@ -28,7 +28,7 @@ const wire = (board, over = {}) => {
 		nodeAt: vi.fn(id => ({ x: 20, y: 30, id })),
 		onMove: vi.fn(), onNudge: vi.fn(), onDragMove: vi.fn(), onDragEnd: vi.fn(),
 		onLink: vi.fn(), onLinkFrom: vi.fn(), onOpen: vi.fn(), onPickEdge: vi.fn(),
-		onPickNone: vi.fn(), onRemove: vi.fn(), onArm: vi.fn(),
+		onPickNone: vi.fn(), onRemove: vi.fn(), onArm: vi.fn(), onTags: vi.fn(),
 		// The caption's own four, and the seat it is sitting at when a press arrives — which the
 		// window answers off the last paint, and which is what an abandoned slide goes back to.
 		seatAt: vi.fn(() => 0.5),
@@ -1487,5 +1487,80 @@ describe("drawing a line without the handle", () => {
 			teardown();
 		}).not.toThrow();
 		expect(teardown.heldAim()).toBeNull();
+	});
+});
+
+// THE TAGS UNDER A NAME have two routes in: the pen on the face, and a double click on the name
+// itself (or on a tag already there). Both are the window's `onTags`; neither is a drag, a sheet or
+// a zoom, and neither exists on a board the reader may only look at.
+describe("the pen, and a double click on the name", () => {
+	let board;
+	beforeEach(() => {
+		board = pointerBoard();
+		board.view.setPointerCapture = vi.fn();
+		board.view.releasePointerCapture = vi.fn();
+	});
+	afterEach(() => board.destroy());
+
+	// Same shape as the trash can beside it: a hand that shifts a few pixels between press and
+	// release must not carry the person across the board, and the click the button waits for stays.
+	it("opens the tags editor from the pen, and neither picks the portrait up nor opens their sheet", () => {
+		const { handlers, teardown } = wire(board);
+		press(board, board.portraits.n1.pen, { to: [40, 0] });
+		expect(handlers.onTags).toHaveBeenCalledWith("n1");
+		expect(handlers.onMove).not.toHaveBeenCalled();
+		expect(board.view.setPointerCapture).not.toHaveBeenCalled();
+		expect(handlers.onOpen).not.toHaveBeenCalled();
+		teardown();
+	});
+
+	it("opens it from a double click on the name, and on a tag under it, without opening the sheet", () => {
+		const { handlers, teardown } = wire(board);
+		doublePress(board, board.portraits.n1.name);
+		expect(handlers.onTags).toHaveBeenCalledWith("n1");
+		doublePress(board, board.portraits.n2.tag);
+		expect(handlers.onTags).toHaveBeenCalledWith("n2");
+		expect(handlers.onOpen).not.toHaveBeenCalled();
+		teardown();
+	});
+
+	it("leaves a double click on the face to the sheet, and the sheet alone", () => {
+		const { handlers, teardown } = wire(board);
+		doublePress(board, board.portraits.n1.face);
+		expect(handlers.onOpen).toHaveBeenCalledWith("n1");
+		expect(handlers.onTags).not.toHaveBeenCalled();
+		teardown();
+	});
+
+	it("offers neither route on a board the reader may not edit", () => {
+		const { handlers, teardown } = wire(board, { canEdit: () => false });
+		press(board, board.portraits.n1.pen);
+		doublePress(board, board.portraits.n1.name);
+		expect(handlers.onTags).not.toHaveBeenCalled();
+		teardown();
+	});
+
+	// The pen is a tab stop beside the handle, with the handle's rule: its keys are kept from the
+	// scene behind the window and do nothing here. Enter and Space are the button's own.
+	it("keeps Delete and the arrows on the pen from the scene, and does nothing with them", () => {
+		const { handlers, teardown } = wire(board);
+		for (const key of ["Delete", "ArrowRight"]) {
+			const ev = board.view.emit("keydown", board.portraits.n1.pen, { key });
+			expect(ev.defaultPrevented).toBe(true);
+			expect(ev.propagationStopped).toBe(true);
+		}
+		expect(handlers.onRemove).not.toHaveBeenCalled();
+		expect(handlers.onNudge).not.toHaveBeenCalled();
+		expect(handlers.onMove).not.toHaveBeenCalled();
+		teardown();
+	});
+
+	// A press on a tag is a press on the person, exactly as a press on the name is.
+	it("moves the person from a press on a tag under their name", () => {
+		const { handlers, teardown } = wire(board);
+		press(board, board.portraits.n1.tag, { to: [40, 0] });
+		expect(handlers.onMove).toHaveBeenCalled();
+		expect(handlers.onTags).not.toHaveBeenCalled();
+		teardown();
 	});
 });

@@ -145,6 +145,70 @@ export function promptForTexts({ title, buttonLabel, fields, lead = "", icon = "
 }
 
 /**
+ * Ask for a few short lines at once, in one box: the tags under a person's name.
+ *
+ * ONE TEXTAREA AND NOT A BOX PER LINE, because how many there are is the reader's to decide, and a
+ * column of empty boxes says "fill these in". Same contract as `promptForText`, per line: every line
+ * trimmed, the blank ones dropped, and `null` for the whole window dismissed. Holding the list to the
+ * caller's bound is the caller's business (the store gates it on the way in, `readTags`).
+ *
+ * ⚠ ENTER MAKES A LINE HERE, AND SAVE IS THE BUTTON. A textarea never submits on Enter, and DialogV2
+ * keys only Escape, so this window cannot be confirmed from inside the box: the hint under it says
+ * so, and the button is one Tab away. And THE CARET GOES TO THE END of what is there rather than
+ * selecting it all, which is `showTextPrompt`'s rule for a one-line box and the wrong one here: a
+ * reader adding a second tag under a name would type over the first.
+ *
+ * @param {object} p
+ * @param {string} p.title              Window title.
+ * @param {string} p.buttonLabel        Confirm-button label.
+ * @param {string[]} [p.lines]          What the box opens on, one per line.
+ * @param {string} [p.hint]             A line of plain text under the box.
+ * @param {string} [p.placeholder]      Ghost text for an empty box.
+ * @param {number} [p.rows=3]           How many lines tall the box is.
+ * @param {string} [p.icon]             The title bar's glyph, as a Font Awesome class list.
+ * @param {number} [p.width=420]
+ * @returns {Promise<string[]|null>}
+ */
+export function promptForLines({
+	title, buttonLabel, lines = [], hint = "", placeholder = "", rows = 3, icon = "", width = 420,
+}) {
+	// Escaped, all of it: the lines are text somebody at this table typed, shown as the box's content.
+	const content = contentElement(`
+		<div class="relmap-text-prompt relmap-text-prompt--lines">
+			<textarea name="relmapLines" rows="${Number(rows) || 3}"
+			          placeholder="${escHtml(placeholder)}">${escHtml((lines ?? []).join("\n"))}</textarea>
+			${hint ? `<p class="relmap-text-prompt-lead">${escHtml(hint)}</p>` : ""}
+		</div>`);
+
+	return foundry.applications.api.DialogV2.prompt({
+		classes: themedDialogClasses("relmap-text-prompt-dialog"),
+		window: dialogWindow(title, icon),
+		position: { width },
+		content,
+		render: (_event, dialog) => {
+			const root = dialog?.element ?? dialog;
+			const box = root?.querySelector?.(".relmap-text-prompt textarea");
+			if (!box) return;
+			box.focus?.();
+			const end = String(box.value ?? "").length;
+			box.setSelectionRange?.(end, end);
+		},
+		ok: {
+			label: buttonLabel,
+			class: CTA_CLASS,
+			// Through `namedItem`, as `showTextPrompt` reads its boxes, and for the same reason.
+			callback: (event, button) => splitLines(button.form.elements.namedItem("relmapLines")?.value),
+		},
+		rejectClose: false,
+	});
+}
+
+/** The lines of a box's text: trimmed, the blank ones dropped. Exported for the tests alone. */
+export function splitLines(text) {
+	return String(text ?? "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+}
+
+/**
  * The window `promptForText` and `promptForTexts` both are: their boxes, resolving to every one of
  * `names` read off the form, trimmed, or to null when the window is dismissed.
  *

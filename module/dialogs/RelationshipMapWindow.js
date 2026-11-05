@@ -38,7 +38,7 @@ import {
 } from "../utils/relmap-geometry.js";
 import {
 	RELMAP_DASHES, RELMAP_DASH_DEFAULT, RELMAP_DIRS, RELMAP_FLAG, RELMAP_GROUP_DASHES, RELMAP_GROUP_SHAPES, RELMAP_INKS,
-	RELMAP_LABEL_MAX, RELMAP_SEAT_MIN, RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN,
+	RELMAP_LABEL_MAX, RELMAP_SEAT_MIN, RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_TAGS_MAX,
 	addEdgePatch, addGroupPatch,
 	addNodePatch, addNodesPatch, dropEdgePatch, dropGroupPatch, dropNodePatch, edgePatch, fanIndexes,
 	groupMembersPatch, groupPatch, nodePatch, readSeat, seatArrivals, takenSpots,
@@ -69,7 +69,7 @@ import {
 } from "../relmap/relmap-doc.js";
 import { chooseRelationshipMap } from "../relmap/relmap-make.js";
 import { pickPersonToAdd, pickPersonToLink } from "./RelationshipLinkDialog.js";
-import { promptForText } from "./content-picker.js";
+import { promptForLines, promptForText } from "./content-picker.js";
 import { createPerson } from "../utils/create-person.js";
 
 // Plain literals, not built from MODULE_ID: tests/templates/partial-registration.test.js proves
@@ -1076,6 +1076,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// with NO uuid is a different thing entirely — somebody typed onto the board who never
 			// had an actor — and neither reading may catch it.
 			const gone = !!node.uuid && !actor;
+			// THE TAGS ARE PART OF WHAT THE FACE SAYS, in the tooltip and the accessible name alike:
+			// "Lord Elroy, The Iron Knight". A reader on a magnifier sees the lines under the name;
+			// one on a screen reader would otherwise never hear of them.
+			const named = node.tags.length ? format("RELMAP.namedAs", { name, tags: node.tags.join(", ") }) : name;
 			return {
 				id,
 				name,
@@ -1104,12 +1108,13 @@ export class RelationshipMapWindow extends RelmapDialog {
 				// note somewhere the reader is not looking. It matters most on the deleted-actor
 				// sentence, which is exactly the face somebody is about to want gone.
 				tooltip: withHint(gone
-					? format("RELMAP.deletedActor", { name })
+					? format("RELMAP.deletedActor", { name: named })
 					: actor
-						? format("RELMAP.openSheet", { name })
-						: name),
+						? format("RELMAP.openSheet", { name: named })
+						: named),
 				linkLabel: format("RELMAP.linkFrom", { name }),
 				removeLabel: format("RELMAP.removeLabel", { name }),
+				tagsLabel: format("RELMAP.tags.edit", { name }),
 			};
 		});
 
@@ -1500,6 +1505,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// exists. A right press asks for the person's trash can; the next ordinary click
 			// anywhere puts it away again.
 			onArm: id => this._armRemove(id),
+			onTags: id => this._tagPerson(id),
 		});
 
 		this._teardownDrag?.resumeAim?.(heldAim);
@@ -4617,6 +4623,40 @@ export class RelationshipMapWindow extends RelmapDialog {
 		await this._write(dropNodePatch(now, id), {
 			announce: format("RELMAP.removed", { name: node.name }),
 			label: format("RELMAP.history.removed", { name: node.name }),
+		});
+	}
+
+	/**
+	 * The tags under somebody's name -- "deceased", "The Iron Knight" -- asked for in one small
+	 * window and written at once. Reached from the pen on the face and from a double click on the
+	 * name (utils/relmap-drag.js), which hand over the person's id and nothing else.
+	 *
+	 * ⚠ NOT COALESCED. `record` folds a same-key change made within a moment into one step, which is
+	 * right for an arrow key held down and wrong here: two deliberate Saves a second apart are two
+	 * things the reader did, and Undo should take back one at a time. A Save is one gesture already.
+	 * `onto` is not history either: `_write` reads it to refuse the write when the person has gone
+	 * off the board while the window was up. And `_stillOn`, as the removal asks it: a reader who
+	 * changed boards while the window stood is told why nothing happened.
+	 */
+	async _tagPerson(id) {
+		const doc = this.boardDoc;
+		const graph = readGraph(doc);
+		const node = graph.nodes[id];
+		if (!node) return;
+		const name = this._nameOf(graph, id);
+		const lines = await promptForLines({
+			title: format("RELMAP.tags.title", { name }),
+			buttonLabel: localize("RELMAP.tags.go"),
+			lines: node.tags,
+			hint: format("RELMAP.tags.hint", { max: RELMAP_TAGS_MAX }),
+			placeholder: localize("RELMAP.tags.placeholder"),
+			rows: RELMAP_TAGS_MAX,
+			icon: "fa-solid fa-pen",
+		});
+		if (lines === null || !this._stillOn(doc)) return;
+		await this._write(nodePatch(id, { tags: lines }), {
+			label: format("RELMAP.history.tagged", { name }),
+			onto: { kind: "nodes", id },
 		});
 	}
 

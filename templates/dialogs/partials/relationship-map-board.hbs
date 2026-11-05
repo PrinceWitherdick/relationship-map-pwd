@@ -250,6 +250,15 @@
           data-tooltip="{{../linkHint}}" aria-label="{{linkLabel}}">
     <i class="fas fa-link"></i>
   </button>
+  {{!-- THE PEN, for the tags under the name ("deceased", "The Iron Knight"): the handle's twin in
+        size, reveal and reach, on the right of the face a little below the middle -- the stylesheet
+        says why not a corner (`.relmap-pen`). A double click on the name itself does the same
+        (utils/relmap-drag.js); the pen is what tells a reader the gesture exists, and the keyboard's
+        way to it. Same gate as the handle: no editor on a board the reader may only look at. --}}
+  <button type="button" class="relmap-pen" data-relmap-tags="{{id}}"
+          data-tooltip-text="{{tagsLabel}}" aria-label="{{tagsLabel}}">
+    <i class="fas fa-pen"></i>
+  </button>
   {{!-- TAKING SOMEBODY OFF, and the only way to do it with a mouse. It used to be the Delete key
         and nothing else, which is a gesture with nothing on screen to suggest it exists.
 
