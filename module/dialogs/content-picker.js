@@ -183,6 +183,13 @@ export function promptForTexts({ title, buttonLabel, fields, lead = "", icon = "
 export function promptForLines({
 	title, buttonLabel, lines = [], hint = "", placeholder = "", rows = 3, icon = "", width = 420, choice = null,
 }) {
+	// NAMED FOR A SCREEN READER BY THE WINDOW'S OWN TITLE, and described by the hint. A textarea with
+	// no label is read out by its placeholder, and the placeholder here is a sample tag ("The Iron
+	// Knight"), heard as if it were the box's name or its contents; the hint is the one thing a reader
+	// cannot guess, that Enter makes a line and Save is the button. The id goes on the hint, an inner
+	// element: the wrapper `contentElement` hands DialogV2 stays bare. Counted, so two of these windows
+	// open at once never share one.
+	const hintId = hint ? `relmap-text-prompt-hint-${++hintSeq}` : "";
 	const picked = choice
 		? (choice.options.some(option => option.value === choice.value) ? choice.value : choice.options[0]?.value)
 		: null;
@@ -200,9 +207,9 @@ export function promptForLines({
 	// the box is the first. (The one-line prompts above do not carry it; theirs is a separate question.)
 	const content = contentElement(`
 		<div class="relmap-text-prompt relmap-text-prompt--lines">
-			<textarea name="relmapLines" rows="${Number(rows) || 3}" autofocus
+			<textarea name="relmapLines" rows="${Number(rows) || 3}" autofocus aria-label="${escHtml(title)}"${hintId ? ` aria-describedby="${hintId}"` : ""}
 			          placeholder="${escHtml(placeholder)}">${escHtml((lines ?? []).join("\n"))}</textarea>
-			${hint ? `<p class="relmap-text-prompt-lead">${escHtml(hint)}</p>` : ""}
+			${hint ? `<p class="relmap-text-prompt-lead" id="${hintId}">${escHtml(hint)}</p>` : ""}
 			${row}
 		</div>`);
 
@@ -232,6 +239,9 @@ export function promptForLines({
 		rejectClose: false,
 	});
 }
+
+/** How many lines windows have carried a hint so far, for the hint's id; see `promptForLines`. */
+let hintSeq = 0;
 
 /** The lines of a box's text: trimmed, the blank ones dropped. Exported for the tests alone. */
 export function splitLines(text) {

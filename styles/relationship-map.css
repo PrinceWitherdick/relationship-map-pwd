@@ -259,13 +259,13 @@
    specific argument, so `:where(...) :is(input[type="text"], ...)` scored (0,1,1) and beat this
    file's own single-class rules: it painted a lighter box inside the people picker's find field,
    whose input is meant to be see-through inside its bordered label. */
-:where(.relmap-window.theme-dark :is(input[type="text"], input[type="number"], input[type="search"], select)) {
+:where(.relmap-window.theme-dark :is(input[type="text"], input[type="number"], input[type="search"], select, textarea)) {
 	background: var(--relmap-field-bg);
 	border-color: var(--relmap-rule-strong);
 	color: var(--relmap-text-body);
 }
 
-:where(.relmap-window.theme-dark) :is(input, select)::placeholder {
+:where(.relmap-window.theme-dark) :is(input, select, textarea)::placeholder {
 	color: var(--relmap-text-faint);
 }
 
@@ -418,7 +418,7 @@
    above gives: the people chooser's find box is an input meant to be see-through inside its bordered
    label, and its single-class rule has to win. Later than the dark frame's field rule, which is the
    same weight, so a dark dialog takes these. */
-:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select)) {
+:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select, textarea)) {
 	background: var(--relmap-field-bg);
 	border: 1px solid var(--relmap-rule-strong);
 	border-radius: var(--relmap-radius);
@@ -429,7 +429,7 @@
 /* A ring rather than core's glow, in the accent. The transparent outline is not decoration: a forced-
    colours display drops every box-shadow and draws the outline in its place. The people chooser's find
    box wears it on the box round the field, which is what reads as the control there. */
-:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select):focus),
+:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select, textarea):focus),
 .relmap-person-picker-find:focus-within {
 	border-color: var(--relmap-accent);
 	outline: 2px solid transparent;

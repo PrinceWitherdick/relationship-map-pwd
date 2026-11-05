@@ -163,6 +163,28 @@ describe("a few lines asked for in one box", () => {
 		expect(html).toContain(">One per line.</p>");
 	});
 
+	// A textarea with no label is read out by its placeholder, here a sample tag. The box is named by
+	// the window's title and described by the hint, through an id on the hint and nothing on the
+	// wrapper, which DialogV2 wants bare.
+	it("is named for a screen reader by the title and described by the hint", async () => {
+		await promptForLines({ title: 'Tags for "Elena"', buttonLabel: "Save", hint: "One per line.", placeholder: "The Iron Knight" });
+		const html = asked.content.innerHTML;
+		expect(html).toContain('aria-label="Tags for &quot;Elena&quot;"');
+		const described = html.match(/aria-describedby="([^"]+)"/)?.[1];
+		expect(described).toMatch(/^relmap-text-prompt-hint-\d+$/);
+		expect(html).toContain(`<p class="relmap-text-prompt-lead" id="${described}">One per line.</p>`);
+		// Another window open at the same time has a hint of its own.
+		await promptForLines({ title: "Tags for Stefan", buttonLabel: "Save", hint: "One per line." });
+		expect(asked.content.innerHTML.match(/aria-describedby="([^"]+)"/)?.[1]).not.toBe(described);
+	});
+
+	it("describes the box by nothing when there is no hint", async () => {
+		await promptForLines({ title: "Tags", buttonLabel: "Save" });
+		expect(asked.content.innerHTML).toContain('aria-label="Tags"');
+		expect(asked.content.innerHTML).not.toContain("aria-describedby");
+		expect(asked.content.innerHTML).not.toContain(' id="');
+	});
+
 	it("answers the lines typed, trimmed, with the blank ones dropped, and no choice where none was asked", async () => {
 		await promptForLines({ title: "Tags", buttonLabel: "Save" });
 		expect(asked.content.innerHTML).not.toContain("fieldset");

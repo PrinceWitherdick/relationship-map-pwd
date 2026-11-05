@@ -1199,6 +1199,26 @@ describe("a portrait's box is the circle and nothing else", () => {
 	});
 });
 
+// The module skins its dialogs' fields itself (the field ground, a rule-strong border that the
+// high-contrast setting thickens, the accent focus ring, the faint placeholder). The tags window's
+// textarea took core's rule instead, whose dark border is transparent, so under high contrast it
+// was the one box in the dialog with no edge.
+describe("the dialog's fields", () => {
+	const css = read("styles/relationship-map.css").replace(/\/\*[\s\S]*?\*\//g, "");
+	const selectors = [...css.matchAll(/([^{}]+)\{/g)].map(found => found[1].replace(/\s+/g, " ").trim());
+	const naming = part => selectors.filter(selector => selector.includes(part));
+
+	it("skin the textarea with the one-line boxes: ground and border, focus ring, dark theme, placeholder", () => {
+		const dialogFields = naming('.relmap-dialog :is(input[type="text"]');
+		expect(dialogFields.length).toBeGreaterThanOrEqual(2);
+		for (const selector of dialogFields) expect(selector).toMatch(/select, textarea\)/);
+		const darkFields = naming('.relmap-window.theme-dark :is(input[type="text"]');
+		expect(darkFields.length).toBeGreaterThanOrEqual(1);
+		for (const selector of darkFields) expect(selector).toMatch(/select, textarea\)/);
+		expect(naming("::placeholder").some(selector => selector.includes(":is(input, select, textarea)::placeholder"))).toBe(true);
+	});
+});
+
 // -- Groups: a named box or oval round some people -----------------------------------------------
 //
 // The outline layer is the FIRST thing on the board, so everything else is drawn over it, and only

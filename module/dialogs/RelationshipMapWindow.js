@@ -23,7 +23,7 @@ import { openingSize } from "../utils/opening-size.js";
 import { getDragEventData, renderTemplate } from "../utils/foundry-compat.js";
 import { openLinkedActorSheet } from "../utils/actor-link.js";
 import { portraitOrNone } from "../utils/portrait.js";
-import { format, localize } from "../utils/i18n.js";
+import { format, listOf, localize } from "../utils/i18n.js";
 import { MODULE_ID } from "../module-id.js";
 import { ZoomPanSurface } from "../utils/zoom-pan-surface.js";
 import { groupPressed, pressStartsBox, pressStartsDraw, wireRelmapDrag } from "../utils/relmap-drag.js";
@@ -41,7 +41,7 @@ import {
 	RELMAP_LABEL_MAX, RELMAP_SEAT_MIN, RELMAP_SIDES, RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_TAGS_MAX,
 	addEdgePatch, addGroupPatch,
 	addNodePatch, addNodesPatch, dropEdgePatch, dropGroupPatch, dropNodePatch, edgePatch, fanIndexes,
-	groupMembersPatch, groupPatch, nodePatch, readSeat, seatArrivals, takenSpots,
+	groupMembersPatch, groupPatch, nodePatch, readSeat, readTags, seatArrivals, takenSpots,
 } from "../relmap/relmap-store.js";
 import {
 	RELMAP_INK_ACROSS, RELMAP_INK_PRESETS, boardGrounds, inkPaint, legibleHex, luminance, normalizeHex,
@@ -80,6 +80,11 @@ const BOARD_PARTIAL = "modules/relationship-map-pwd/templates/dialogs/partials/r
 
 /** How long a burst of remote writes is allowed to coalesce before the board repaints. */
 const SYNC_DEBOUNCE_MS = 50;
+
+/** Whether two lists of tags say the same lines in the same order. See `_tagPerson`. */
+function sameLines(a, b) {
+	return a.length === b.length && a.every((line, i) => line === b[i]);
+}
 
 /**
  * What one wheel notch multiplies the board's zoom by, and it is DELIBERATELY GENTLER than the
@@ -337,6 +342,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// Whether the reader's last press on the page landed in this window, which is what stands
 		// in for focus when Ctrl+Z arrives; see `_wireHistoryKeys`.
 		this._pointerWithin = false;
+		// Whose tags window stands open, by person id, so a second press on the pen while it does
+		// opens nothing more; see `_tagPerson`.
+		this._tagging = new Set();
+		// Which control the next REPAINT is to put the reader's focus back onto, as a selector: what
+		// `_focusOnRender` is to a render, this is to `_repaintBoard`, which replaces the board's
+		// markup and the focused control with it. Null on an ordinary repaint, which must never move
+		// anybody's focus. See `_tagPerson`.
+		this._focusOnRepaint = null;
 		// The board inside `_root`, remembered by `_boardEl()`, and the root it was found in.
 		this._board = null;
 		this._boardRoot = null;
@@ -1079,7 +1092,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// THE TAGS ARE PART OF WHAT THE FACE SAYS, in the tooltip and the accessible name alike:
 			// "Lord Elroy, The Iron Knight". A reader on a magnifier sees the lines under the name;
 			// one on a screen reader would otherwise never hear of them.
-			const named = node.tags.length ? format("RELMAP.namedAs", { name, tags: node.tags.join(", ") }) : name;
+			const named = node.tags.length ? format("RELMAP.namedAs", { name, tags: listOf(node.tags) }) : name;
 			return {
 				id,
 				name,
@@ -1233,7 +1246,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const outlines = groupShapes(graph, board, { wordScale: scales.word, unnamed });
 		this._drawn.groups = new Map(outlines.map(shape => [shape.id, shape]));
 		const groups = outlines.map(({ id, group, members, outline, words: named }) => {
-			const who = members.map(member => this._nameOf(graph, member)).join(", ");
+			const who = listOf(members.map(member => this._nameOf(graph, member)));
 			const said = format("RELMAP.groups.says", { name: named, who });
 			return {
 				id, ...inkPaint(group.ink, paint), d: outline.d,
@@ -1875,6 +1888,13 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// Back to the new group's own name when the naming is done (Enter, Escape), so the reader
 			// is still on the board. See `_groupNameEl`.
 			this._pickGroup(pick, { focusName: true, returnTo: () => this._groupNameEl(pick) });
+		}
+		// A control a window of this window's gave the focus back to, redrawn by this paint: found
+		// again by its selector, as `_takeFocusBack` finds one after a render.
+		if (this._focusOnRepaint) {
+			const want = this._focusOnRepaint;
+			this._focusOnRepaint = null;
+			board.querySelector?.(want)?.focus?.();
 		}
 		this._paintChrome(plan);
 	}
@@ -4641,35 +4661,70 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * `onto` is not history either: `_write` reads it to refuse the write when the person has gone
 	 * off the board while the window was up. And `_stillOn`, as the removal asks it: a reader who
 	 * changed boards while the window stood is told why nothing happened.
+	 *
+	 * ⚠ ONE WINDOW PER PERSON. The pen opens one on every click and a double click is two, each a
+	 * DialogV2 of its own at the same spot: the reader saved the top one and found the first under
+	 * it, still showing the old lines, and a second Save wrote those back. `_tagging` holds the id
+	 * while the window stands.
+	 *
+	 * ⚠ ONLY WHAT CHANGED, against what the window opened on. The store writes a leaf at a time so
+	 * that two readers at two leaves both survive (relmap-store.js); an answer that carried both back
+	 * would put the side this reader never touched over the one somebody else chose while the window
+	 * stood. And nothing at all for a Save that changed nothing: Foundry writes no update for an
+	 * empty diff, and a step recorded for it would do nothing on Undo and still have thrown the redo
+	 * stack away. A change to one, the other, or both is one write and one step, as before.
 	 */
 	async _tagPerson(id) {
+		if (this._tagging.has(id)) return;
 		const doc = this.boardDoc;
 		const graph = readGraph(doc);
 		const node = graph.nodes[id];
 		if (!node) return;
 		const name = this._nameOf(graph, id);
-		const answer = await promptForLines({
-			title: format("RELMAP.tags.title", { name }),
-			buttonLabel: localize("RELMAP.tags.go"),
-			lines: node.tags,
-			hint: format("RELMAP.tags.hint", { max: RELMAP_TAGS_MAX }),
-			placeholder: localize("RELMAP.tags.placeholder"),
-			rows: RELMAP_TAGS_MAX,
-			icon: "fa-solid fa-pen",
-			// And where the plate of name and tags stands round the face: the store's four sides in
-			// its order, the stored one checked.
-			choice: {
-				label: localize("RELMAP.tags.where"),
-				name: "relmapSide",
-				value: node.side,
-				options: RELMAP_SIDES.map(side => ({ value: side, label: localize(`RELMAP.tags.side.${side}`) })),
-			},
-		});
+		this._tagging.add(id);
+		let answer;
+		try {
+			answer = await promptForLines({
+				title: format("RELMAP.tags.title", { name }),
+				buttonLabel: localize("RELMAP.tags.go"),
+				lines: node.tags,
+				hint: format("RELMAP.tags.hint", { max: RELMAP_TAGS_MAX }),
+				placeholder: localize("RELMAP.tags.placeholder"),
+				rows: RELMAP_TAGS_MAX,
+				icon: "fa-solid fa-pen",
+				// And where the plate of name and tags stands round the face: the store's four sides
+				// in its order, the stored one checked.
+				choice: {
+					label: localize("RELMAP.tags.where"),
+					name: "relmapSide",
+					value: node.side,
+					options: RELMAP_SIDES.map(side => ({ value: side, label: localize(`RELMAP.tags.side.${side}`) })),
+				},
+			});
+		} finally {
+			this._tagging.delete(id);
+		}
+		// THE READER WAS WORKING IN THIS WINDOW, however the small one closed. Its Save and its radios
+		// stand outside `_root`, so the press on them cleared `_pointerWithin`, and DialogV2 shuts by
+		// taking its element out of the page without handing the focus anywhere: left so, the Ctrl+Z a
+		// reader presses next lands on the body, this window declines it (`_ownsKeystroke`), and core
+		// takes it as the undo of the last thing done on the CANVAS. Claimed back here, and the focus
+		// put on the pen it came from: now, and again after the repaint a write brings, which redraws
+		// the pen (`_focusOnRepaint`, cleared if the write never happens).
+		this._pointerWithin = true;
+		const pen = `[data-relmap-tags="${id}"]`;
+		this._root?.querySelector?.(pen)?.focus?.();
 		if (answer === null || !this._stillOn(doc)) return;
-		await this._write(nodePatch(id, { tags: answer.lines, side: answer.choice }), {
+		const change = {};
+		if (!sameLines(readTags(answer.lines), node.tags)) change.tags = answer.lines;
+		if (answer.choice !== node.side) change.side = answer.choice;
+		if (!Object.keys(change).length) return;
+		this._focusOnRepaint = pen;
+		const written = await this._write(nodePatch(id, change), {
 			label: format("RELMAP.history.tagged", { name }),
 			onto: { kind: "nodes", id },
 		});
+		if (!written) this._focusOnRepaint = null;
 	}
 
 	// ── The bar ─────────────────────────────────────────────────────────────
