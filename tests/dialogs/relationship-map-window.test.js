@@ -2792,6 +2792,68 @@ describe("keeping up with pages being changed elsewhere", () => {
 		expect(app.sync).toHaveBeenCalled();
 	});
 
+	// THE BOARD DRAWS THE LIVE ACTOR'S NAME AND PICTURE, and listened for nothing an actor did: a
+	// rename in the sidebar stayed off every open board until something else happened to repaint it.
+	const ACTORS = {
+		version: 1,
+		nodes: {
+			elena: { uuid: "Actor.a1", name: "Elena", img: "", x: 20, y: 30, note: "" },
+			stefan: { uuid: "Actor.b2", name: "Stefan", img: "", x: 70, y: 30, note: "" },
+		},
+		edges: {},
+	};
+
+	it("repaints when an actor on the board is renamed or given a new picture", async () => {
+		const on = hooksOf();
+		const { app } = windowFor(ACTORS);
+		app.sync = vi.fn();
+		app._wireSync();
+		on.get("updateActor")({ uuid: "Actor.a1" }, { name: "Elena the Elder" });
+		await new Promise(r => setTimeout(r, 90));
+		expect(app.sync).toHaveBeenCalledTimes(1);
+		on.get("updateActor")({ uuid: "Actor.b2" }, { img: "stefan-older.webp" });
+		await new Promise(r => setTimeout(r, 90));
+		expect(app.sync).toHaveBeenCalledTimes(2);
+	});
+
+	// Every actor write in the world arrives at this hook, and most of them are hit points.
+	it("leaves the board alone for an actor who is not on it, or a change it does not draw", async () => {
+		const on = hooksOf();
+		const { app } = windowFor(ACTORS);
+		app.sync = vi.fn();
+		app._wireSync();
+		on.get("updateActor")({ uuid: "Actor.zz" }, { name: "Nobody" });
+		on.get("updateActor")({ uuid: "Actor.a1" }, { system: { hp: 3 } });
+		on.get("deleteActor")({ uuid: "Actor.zz" });
+		await new Promise(r => setTimeout(r, 90));
+		expect(app.sync).not.toHaveBeenCalled();
+	});
+
+	it("repaints when an actor on the board is deleted, so the dashed rim shows at once", async () => {
+		const on = hooksOf();
+		const { app } = windowFor(ACTORS);
+		app.sync = vi.fn();
+		app._wireSync();
+		on.get("deleteActor")({ uuid: "Actor.a1" });
+		await new Promise(r => setTimeout(r, 90));
+		expect(app.sync).toHaveBeenCalled();
+	});
+
+	// An adventure imported again, a compendium imported with its ids kept: the actor is back under
+	// the uuid the board holds, and the dashed rim has to come off without anybody else writing.
+	it("repaints when an actor on the board is made again under their old id, and not for a stranger", async () => {
+		const on = hooksOf();
+		const { app } = windowFor(ACTORS);
+		app.sync = vi.fn();
+		app._wireSync();
+		on.get("createActor")({ uuid: "Actor.zz" });
+		await new Promise(r => setTimeout(r, 90));
+		expect(app.sync).not.toHaveBeenCalled();
+		on.get("createActor")({ uuid: "Actor.b2" });
+		await new Promise(r => setTimeout(r, 90));
+		expect(app.sync).toHaveBeenCalledTimes(1);
+	});
+
 	// A rename is the STRIP's business whichever board it happened to: renaming a page this reader
 	// is not on still changes what the strip says.
 	it("rewrites the strip when any board is renamed, without repainting the board", () => {

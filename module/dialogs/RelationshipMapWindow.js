@@ -1743,6 +1743,41 @@ export class RelationshipMapWindow extends RelmapDialog {
 		};
 		on("createJournalEntryPage", page => onPageChange(page, false));
 		on("deleteJournalEntryPage", page => onPageChange(page, true));
+
+		// ── And the people themselves ──────────────────────────────────────────────────────────
+		//
+		// THE BOARD DRAWS THE LIVE ACTOR'S NAME AND PICTURE (`_personOnMap`), and until now it
+		// listened for nothing an actor did. So a rename in the Actors sidebar left the old name on
+		// every open board until something else repainted it, and a new portrait or a deleted actor's
+		// dashed rim lagged the same way. Only a change to what the board DRAWS, and only for a board
+		// that holds that actor: every actor write in the world arrives here, and most of them are
+		// hit points. `repaint` is the debounced sync above, so a bulk rename is one repaint and a
+		// board mid-drag defers it (`_isBusy`).
+		on("updateActor", (actor, changed) => {
+			if (!("name" in (changed ?? {})) && !("img" in (changed ?? {}))) return;
+			if (this._holdsActor(actor?.uuid)) repaint();
+		});
+		on("deleteActor", actor => {
+			if (this._holdsActor(actor?.uuid)) repaint();
+		});
+		// AND ONE MADE, for the actor who comes back under their old id: an adventure imported again
+		// to reset it, a compendium imported with its ids kept. The board had drawn them gone -- the
+		// dashed rim, the stored name and picture -- and nothing else tells it they are back.
+		on("createActor", actor => {
+			if (this._holdsActor(actor?.uuid)) repaint();
+		});
+	}
+
+	/**
+	 * Whether somebody on the board this window is showing stands for this actor.
+	 *
+	 * One graph read per open window on every actor write in the world, which is the price of a
+	 * board that follows a rename; the hooks that ask have already thrown out every write that
+	 * changes nothing the board draws.
+	 */
+	_holdsActor(uuid) {
+		if (!uuid) return false;
+		return Object.values(readGraph(this.boardDoc)?.nodes ?? {}).some(node => node.uuid === uuid);
 	}
 
 	/**
