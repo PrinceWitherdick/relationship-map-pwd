@@ -21,8 +21,9 @@ import { holdTravel } from "./relmap-geometry.js";
  * open paper. The selection box starts only from open paper: a Shift press on a portrait is a
  * portrait's gesture, and one on a line is a line's.
  */
-const CLAIMED = "[data-relmap-node], [data-relmap-handle], [data-relmap-remove], [data-relmap-edge], "
-	+ "[data-relmap-hit], [data-relmap-action], [data-relmap-group], [data-relmap-group-hit], [data-relmap-grip]";
+const CLAIMED = "[data-relmap-node], [data-relmap-handle], [data-relmap-remove], [data-relmap-tags], "
+	+ "[data-relmap-edge], [data-relmap-hit], [data-relmap-action], [data-relmap-group], [data-relmap-group-hit], "
+	+ "[data-relmap-grip]";
 
 /** The bars that float in the viewport over the board, each with an Escape of its own. */
 const BOARD_BARS = ".relmap-tiebar, .relmap-groupbar";
@@ -198,6 +199,10 @@ function clearTravel(el) {
  * @param {Function} handlers.onArm     `(id|null) => void` — show the trash can on one portrait,
  *                                      or on nobody. NOT a removal and never confirmed: it is the
  *                                      board saying which person the next press could take off.
+ * @param {Function} handlers.onTags    `id => void` — the pen on a portrait pressed, or the name
+ *                                      under it (or a tag already there) double-clicked: open the
+ *                                      editor for the tags under that person's name. Only where
+ *                                      `canEdit()`.
  *                                      The window owns the mark rather than this layer, because
  *                                      the board's markup is the window's and a repaint replaces
  *                                      every portrait on it.
@@ -290,7 +295,7 @@ function clearTravel(el) {
  */
 export function wireRelmapDrag(root, {
 	surface, nodeAt, onMove, onNudge, onDragMove, onDragEnd, onLink, onLinkFrom, onOpen, onPickEdge,
-	onPickNone, onRemove, onArm,
+	onPickNone, onRemove, onArm, onTags,
 	seatAt, onSeatMove, onSeat, onSeatEnd, onSeatNudge,
 	selected = () => [], onSelect, nodesIn, onGroupMove, onGroupDragMove, onGroupDragEnd, onGroupNudge,
 	groupMembers, onPickGroup, onRemoveGroup, onResizeMove, onResize, onResizeEnd,
@@ -904,7 +909,9 @@ export function wireRelmapDrag(root, {
 		// a hand that shifts three pixels between press and release then moves them across the
 		// board instead, and `swallowClick` eats the click the button was waiting for. Returning
 		// rather than consuming leaves the click intact, which is the whole of what this button is.
-		if (ev.target.closest?.("[data-relmap-remove]")) return;
+		// AND THE PEN FOR THE TAGS UNDER THE NAME, for the same reason: a press on it means "the words
+		// under this person", never "pick this person up".
+		if (ev.target.closest?.("[data-relmap-remove], [data-relmap-tags]")) return;
 		// ⚠ THE WORDS ON A LINE, WHICH ARE DRAGGED ALONG IT and are checked BEFORE the portraits
 		// below for the reason the click handler checks them first: a caption sits IN its stroke,
 		// so a press on the writing has aimed at the writing. It is not inside a node, so nothing
@@ -1196,6 +1203,10 @@ export function wireRelmapDrag(root, {
 		// the first Escape dropped the pick instead of closing what had just opened, and the next face
 		// clicked drew a line from somebody the reader had stopped thinking about.
 		if (handle) { ev.preventDefault(); endAim(); if (canEdit()) onLinkFrom?.(handle.dataset.relmapHandle); return; }
+		// THE PEN: the tags under this person's name. It opens a window of its own, so the pick goes
+		// down first, exactly as it does for the handle's picker above.
+		const pen = ev.target.closest?.("[data-relmap-tags]");
+		if (pen) { ev.preventDefault(); endAim(); if (canEdit()) onTags?.(pen.dataset.relmapTags); return; }
 		// THE WORDS FIRST AND THE STROKE SECOND, though either one takes hold of the same line: a
 		// caption sits IN its stroke, so the two overlap, and a reader aiming at the writing has
 		// aimed at the writing. (In practice the caption layer is drawn over the line layer and
@@ -1337,9 +1348,21 @@ export function wireRelmapDrag(root, {
 		// taken them out again. That is a reader choosing people, not asking for a sheet.
 		if (addsToSelection(ev)) return;
 		const face = ev.target.closest?.("[data-relmap-open]");
-		if (!face) return;
+		if (face) {
+			ev.preventDefault();
+			onOpen?.(face.dataset.relmapOpen);
+			return;
+		}
+		// A DOUBLE CLICK ON THE NAME, or on a tag under it, opens the editor for the tags under that
+		// name: the words are the thing being edited, so the words are where a reader double-clicks.
+		// The name is a SIBLING of the face and not a child, so the walk above went past it; the node
+		// round both carries the id. Only where the board may be edited, and never also a zoom: the
+		// pan surface refuses a double click on anything inside `[data-relmap-node]`.
+		const words = ev.target.closest?.(".relmap-name, .relmap-tag");
+		const node = words?.closest?.("[data-relmap-node]");
+		if (!node) return;
 		ev.preventDefault();
-		onOpen?.(face.dataset.relmapOpen);
+		if (canEdit()) onTags?.(node.dataset.relmapNode);
 	});
 
 	// ── Keyboard ────────────────────────────────────────────────────────────
@@ -1413,8 +1436,11 @@ export function wireRelmapDrag(root, {
 		// the button means -- would hand the keystroke to the scene behind this window.
 		// ⚠ AND A GROUP'S NAME IS A TAB STOP TOO, whose Delete means "rub this group out". Left out
 		// of this list, that Delete would reach the scene and take the GM's selected tokens with it.
+		// AND THE PEN for the tags under the name, a fourth sibling tab stop, with the handle's own
+		// rule below: its keys are kept from the scene and do nothing here (the button itself
+		// activates on Enter and Space, which is the keyboard's route to the editor).
 		const mine = face
-			?? ev.target.closest?.("[data-relmap-edge], [data-relmap-handle], [data-relmap-remove], [data-relmap-group]");
+			?? ev.target.closest?.("[data-relmap-edge], [data-relmap-handle], [data-relmap-remove], [data-relmap-tags], [data-relmap-group]");
 		if (!mine) return;
 		const step = ev.shiftKey ? NUDGE_FINE : NUDGE_STEP;
 		const move = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];

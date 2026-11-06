@@ -295,11 +295,98 @@ export function holdTravel(moved, from = []) {
 
 /**
  * How much room round a portrait's CENTRE the board must show for that person to be seen whole, in
- * board pixels: the face, its name hung underneath, and a margin.
+ * board pixels: the face, its name hung underneath, and a margin. These three are the plain person's
+ * figures, whose words stand below the face as every board drew them before a side could be chosen;
+ * everybody is measured by `plateReach` and framed with the margins past it (`BOUNDS_MARGIN_*`,
+ * declared under the group reaches they are taken from), and for that plain person the two come to
+ * exactly these, so a board of plain people frames exactly as it always did.
  */
 const BOUNDS_PAD_X = 90;
 const BOUNDS_PAD_TOP = 60;
 const BOUNDS_PAD_BOTTOM = 90;
+
+/**
+ * THE PLATE OF WORDS under (or above, or beside) a face, in board pixels: the figures the stylesheet
+ * draws the name and the tags at, which the geometry needs to know how far a person reaches.
+ *
+ * THE FIGURES ARE THE STYLESHEET'S. `.relmap-plate` hangs the block 2px under the face, or 14px off
+ * it on the other three sides (`RELMAP_PLATE_AIR_PX`, the handle's overhang and the name's gap); the
+ * name is 18px tall (12px type at 1.5) and capped at 108px (`RELMAP_NAME_MAX_PX`; a tag's 216 beside
+ * the face); each tag is a 16px line capped at 216 (`RELMAP_TAG_MAX_PX`). Change one here and there
+ * together: the templates test holds the exported ones to one number.
+ */
+const FACE_REACH_PX = RELMAP_NODE_PX / 2;
+const NAME_LINE_PX = 18;
+const NAME_GAP_PX = 2;
+const TAG_LINE_PX = 16;
+export const RELMAP_NAME_MAX_PX = 108;
+export const RELMAP_PLATE_AIR_PX = 14;
+
+/**
+ * How wide a tag may be before the stylesheet cuts it: twice the name's 108px. THE STYLESHEET'S FIGURE
+ * (`.relmap-tag`'s `max-width`), exported so a test can hold the two to one number.
+ */
+export const RELMAP_TAG_MAX_PX = 216;
+/** The pad of page colour round a name or a tag, both sides: `padding: 0 0.3em` at their 12px. */
+const TAG_PAD_PX = 7.2;
+
+/**
+ * HOW FAR ONE PERSON REACHES FROM THEIR CENTRE on each of the four sides, in board pixels: the face,
+ * and the plate of words (the name and the tags under it) on whichever side it stands. Read off
+ * whatever a caller hands over as a node: the drag and resize previews patch coordinates into a read
+ * graph's own nodes, which carry `side`, `tags` and `name`, and the tests pass bare `{x, y}` points,
+ * which read as a plain person below -- so `Array.isArray` for the tags, and for the side the three
+ * words that are not below, with anything else as below, exactly as the store's `readSide` reads it.
+ *
+ * BELOW IS TODAY'S PERSON TO THE PIXEL: 54 each side (the name's half, or half the widest tag where
+ * one is wider than the name), 36 up, and 56 down plus a line for each tag. Above mirrors the plate
+ * over the face with the 14px of air that clears the handle and the trash can. Beside the face the
+ * plate starts 14px off the rim, level with the middle, and is as wide as its widest line, the name
+ * estimated like a tag and capped like one; its height (18 + 16 a tag, 66 at most) never passes the
+ * face's own 72, so up and down are the face's.
+ *
+ * AN ESTIMATE, NOT A MEASUREMENT. The window measures nothing for words, so a line's width is the
+ * house figure for a letter -- `LABEL_CHAR_PX` at the captions' 16px, carried to 12 -- times its
+ * letters, plus the pad, and never past the stylesheet's cap. On this font that errs LARGE on
+ * ordinary mixed case (about a fifth over, as the measurement beside `LABEL_CHAR_PX` says), so an
+ * outline drawn from it has air to spare; it errs SMALL on capitals (a twenty-capital tag paints
+ * about 163px against 133 estimated), which eats most of the outline's 18px pad but never the words:
+ * the stylesheet cuts at the cap whatever the sum says. The name measured is the STORED one; the
+ * board paints the live actor's, so a person renamed to something much longer since they were added
+ * stands tighter in their outline than this says -- never cut, though: the cap is the stylesheet's.
+ *
+ * ⚠ THE PER-LETTER FIGURE IS WORKED OUT IN HERE AND NOT AS A CONST BESIDE `TAG_LINE_PX`: `LABEL_CHAR_PX`
+ * and `RELMAP_CAPTION_PX` are module-level consts declared a long way below, and a top-level
+ * initialiser up here would run in their temporal dead zone and throw the moment the module loaded.
+ * A function body reads them at call time; so too `GROUP_REACH_X`, declared under `boardBounds`.
+ *
+ * @param {object} node  a person as stored: `side`, `tags` and `name` are read where present.
+ * @returns {{left: number, right: number, top: number, bottom: number}}
+ */
+export function plateReach(node) {
+	const side = ["above", "left", "right"].includes(node?.side) ? node.side : "below";
+	const tags = Array.isArray(node?.tags) ? node.tags : [];
+	const charPx = LABEL_CHAR_PX * 12 / RELMAP_CAPTION_PX;
+	const est = (text, cap) => Math.min(cap, charPx * String(text ?? "").length + TAG_PAD_PX);
+	const widestTag = tags.length ? Math.max(...tags.map(tag => est(tag, RELMAP_TAG_MAX_PX))) : 0;
+	const plateH = NAME_LINE_PX + TAG_LINE_PX * tags.length;
+	if (side === "left" || side === "right") {
+		const plateW = Math.max(est(node?.name, RELMAP_TAG_MAX_PX), widestTag);
+		const across = FACE_REACH_PX + RELMAP_PLATE_AIR_PX + plateW;
+		const upDown = Math.max(FACE_REACH_PX, plateH / 2);
+		return {
+			left: side === "left" ? across : FACE_REACH_PX,
+			right: side === "right" ? across : FACE_REACH_PX,
+			top: upDown,
+			bottom: upDown,
+		};
+	}
+	const half = Math.max(GROUP_REACH_X, widestTag / 2);
+	if (side === "above") {
+		return { left: half, right: half, top: FACE_REACH_PX + RELMAP_PLATE_AIR_PX + plateH, bottom: FACE_REACH_PX };
+	}
+	return { left: half, right: half, top: FACE_REACH_PX, bottom: FACE_REACH_PX + NAME_GAP_PX + plateH };
+}
 
 /**
  * The part of the board that has anything on it, in board PIXELS: the sheet, grown to take in
@@ -313,7 +400,8 @@ const BOUNDS_PAD_BOTTOM = 90;
  * person put out past the edge is still on screen when the board is fitted, and the pan keeps a
  * sliver of THIS in the window rather than a sliver of the sheet.
  *
- * @param {Array<{x: number, y: number}>} nodes  where everybody is, in board percentages.
+ * @param {Array<{x: number, y: number, side?: string, tags?: string[], name?: string}>} nodes  where
+ *   everybody is, in board percentages, with the plate of words each carries (`plateReach`).
  * @param {{width: number, height: number}} board  the sheet, from `boardMetrics`.
  * @param {Array<{left: number, top: number, right: number, bottom: number}>} [boxes]  anything else
  *   drawn on the board that must be framed with it, in board pixels: a group's outline, which can
@@ -325,10 +413,11 @@ export function boardBounds(nodes = [], { width = RELMAP_BOARD_WIDTH, height = R
 		const x = (Number(node?.x) / 100) * width;
 		const y = (Number(node?.y) / 100) * height;
 		if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-		box.left = Math.min(box.left, x - BOUNDS_PAD_X);
-		box.right = Math.max(box.right, x + BOUNDS_PAD_X);
-		box.top = Math.min(box.top, y - BOUNDS_PAD_TOP);
-		box.bottom = Math.max(box.bottom, y + BOUNDS_PAD_BOTTOM);
+		const reach = plateReach(node);
+		box.left = Math.min(box.left, x - reach.left - BOUNDS_MARGIN_X);
+		box.right = Math.max(box.right, x + reach.right + BOUNDS_MARGIN_X);
+		box.top = Math.min(box.top, y - reach.top - BOUNDS_MARGIN_TOP);
+		box.bottom = Math.max(box.bottom, y + reach.bottom + BOUNDS_MARGIN_BOTTOM);
 	}
 	for (const extra of boxes ?? []) {
 		if (![extra?.left, extra?.top, extra?.right, extra?.bottom].every(Number.isFinite)) continue;
@@ -341,14 +430,35 @@ export function boardBounds(nodes = [], { width = RELMAP_BOARD_WIDTH, height = R
 }
 
 /**
- * HOW FAR A GROUP'S OUTLINE STANDS OFF ONE MEMBER'S CENTRE, in board pixels: the face, the name hung
- * under it (`.relmap-name` is capped at 108px wide and sits 2px below the face, 18px tall),
- * and a margin of paper so the outline never grazes either.
+ * HOW FAR A GROUP'S OUTLINE STANDS OFF ONE MEMBER'S CENTRE, in board pixels, for the plain member:
+ * the face, the name hung under it (`.relmap-name` is capped at 108px wide and sits 2px below the
+ * face, 18px tall), and a margin of paper so the outline never grazes either. Every member is
+ * measured by `plateReach` in `groupOutline` (a line further down for each tag, sideways past a tag
+ * wider than the name, and the plate on another side where the reader put it), and for the plain
+ * member that comes to exactly these three.
+ *
+ * ⚠ THE FLOOR A GROUP CAN BE SHRUNK TO DOES NOT GROW WITH THEM. `RELMAP_GROUP_MIN_H` and
+ * `groupMinSize` are sized for one untagged person below, so a group dragged in to its floor round a
+ * tagged member leaves their tags standing outside its line, and a group round one person whose plate
+ * stands beside or above the face (snug 108px tall, under the 128px floor) grows 20px the moment a
+ * corner is first dragged. Accepted: the floor is a rail for a resize the reader is making by hand,
+ * and the snug outline it starts from is right.
  */
 const GROUP_REACH_X = 54;
 const GROUP_REACH_TOP = 36;
 const GROUP_REACH_BOTTOM = 56;
 export const RELMAP_GROUP_PAD_PX = 18;
+
+/**
+ * THE MARGIN THE FRAME KEEPS PAST A PERSON'S PLATE on each side (`boardBounds`), taken from the pads
+ * above so the plain person frames at exactly 90 / 60 / 90, as every board always did.
+ * ⚠ DECLARED HERE, UNDER THE REACHES THEY ARE TAKEN FROM, AND NOT BESIDE `BOUNDS_PAD_X`: a `const`
+ * initialised from `GROUP_REACH_X` above its own declaration runs in its temporal dead zone and
+ * throws the moment the module loads.
+ */
+const BOUNDS_MARGIN_X = BOUNDS_PAD_X - GROUP_REACH_X;
+const BOUNDS_MARGIN_TOP = BOUNDS_PAD_TOP - GROUP_REACH_TOP;
+const BOUNDS_MARGIN_BOTTOM = BOUNDS_PAD_BOTTOM - GROUP_REACH_BOTTOM;
 /** The paper between an outer group's name, hanging below its line, and the name of a group nested
  * inside it, standing on the inner line just below. */
 const GROUP_NEST_GAP_PX = 6;
@@ -590,7 +700,8 @@ export function groupsInside(groups = {}) {
  * the faces they share. An oval reaches the square root of two past its own box, so padding by a
  * fixed step left an oval "elders" poking out through the top of a box "council" round it.
  *
- * @param {Array<{x: number, y: number}>} members  where each member stands, in board percentages.
+ * @param {Array<{x: number, y: number, side?: string, tags?: string[], name?: string}>} members  where
+ *        each member stands, in board percentages, with the plate of words each carries (`plateReach`).
  * @param {object} options
  * @param {{width: number, height: number}} options.board  the sheet.
  * @param {string} [options.shape]  "box" or "oval".
@@ -618,10 +729,11 @@ export function groupOutline(members = [], {
 		const x = (Number(member?.x) / 100) * width;
 		const y = (Number(member?.y) / 100) * height;
 		if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-		left = Math.min(left, x - GROUP_REACH_X);
-		right = Math.max(right, x + GROUP_REACH_X);
-		top = Math.min(top, y - GROUP_REACH_TOP);
-		bottom = Math.max(bottom, y + GROUP_REACH_BOTTOM);
+		const reach = plateReach(member);
+		left = Math.min(left, x - reach.left);
+		right = Math.max(right, x + reach.right);
+		top = Math.min(top, y - reach.top);
+		bottom = Math.max(bottom, y + reach.bottom);
 	}
 	if (!Number.isFinite(left)) return null;
 	left -= RELMAP_GROUP_PAD_PX; right += RELMAP_GROUP_PAD_PX; bottom += RELMAP_GROUP_PAD_PX;

@@ -18,6 +18,7 @@ It works with any game system.
 - **Several people at once.** Shift-click faces, or Shift-drag a box around them, to select several people. Drag any of them, or use the arrow keys, to move them all together as one undo step.
 - **Named groups.** Draw a box or an oval around some people and name it ("The hunters", "The elders"). The outline follows its members as they move, groups can overlap or sit inside each other, and each has its own colour and a solid or dashed outline. Drag a group's name to move everyone in it, or drag its corners to resize it (Shift for a square or a circle); shrinking it past somebody takes them out.
 - **New person.** Make a new actor with Foundry's own Create Actor dialog and put them straight on the map.
+- **Tags under a name.** Up to three short lines under a person's name ("deceased", "The Iron Knight"), written through the small pen on the portrait or by double-clicking the name; the same window chooses which side of the face the name and tags stand on, below, above, left or right. They go up to the whole table like everything else, and Undo takes them back.
 - **Undo and redo** for your own changes on a map (Ctrl+Z, Ctrl+Shift+Z), never anybody else's.
 - **Drawn for your eyes.** Three dials under the map make arrowheads, lines and words heavier or lighter for you alone, and a checkbox hides the captions. A client setting draws every map in high contrast, with a dash pattern per colour so colour is never the only thing telling two lines apart.
 - **Light and dark.** Follows Foundry's own light or dark setting for application windows.
@@ -43,8 +44,9 @@ Then enable **Relationship Map - by PWD** in your world's module settings.
 3. Drag actors from the **Actors** sidebar onto the map, or press **Add someone** under it.
 4. Drag from the small link handle on a portrait to another portrait to draw a line, or Alt-drag from anywhere on the portrait. To draw several, press **Draw lines** under the map: then drag from one portrait to another, or click one and then the other. Click a line to write on it and style it.
 5. Right-click a portrait to take that person off the map. Double-click it to open their sheet. Shift-click portraits, or Shift-drag a box on open paper, to select several and move them together.
-6. Press **Group** under the map to draw a named outline: with people selected it groups them at once, otherwise drag a box around the people to put in it. Click a group's name to rename, recolour or reshape it, or to put the selected people in or take them out. While it is selected, drag a corner handle to resize it: hold Shift for a square or a circle, and shrink it past somebody to take them out of the group.
-7. Use the strip of tabs above the map to add, rename, reorder, hide and delete maps. Use **Collections** on the window's title bar to switch collections or make another.
+6. Rest on a portrait and press the small pen on its right, or double-click the name under it, to write up to three short tags under that person ("deceased", "The Iron Knight"), one per line, and to choose which side of the face the name and tags stand on when a line runs over them.
+7. Press **Group** under the map to draw a named outline: with people selected it groups them at once, otherwise drag a box around the people to put in it. Click a group's name to rename, recolour or reshape it, or to put the selected people in or take them out. While it is selected, drag a corner handle to resize it: hold Shift for a square or a circle, and shrink it past somebody to take them out of the group.
+8. Use the strip of tabs above the map to add, rename, reorder, hide and delete maps. Use **Collections** on the window's title bar to switch collections or make another.
 
 ### Who can do what
 

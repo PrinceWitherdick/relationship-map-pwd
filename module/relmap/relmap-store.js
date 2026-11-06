@@ -302,6 +302,57 @@ export const RELMAP_NAME_MAX = 120;
 export const RELMAP_NOTE_MAX = RELMAP_NAME_MAX * 4;
 
 /**
+ * How long one tag under a person's name may be, and how many of them one person may carry.
+ *
+ * A TAG IS NOT A LABEL. "Label" is the caption on a line, everywhere in this module and on the
+ * "Hide labels" box under the board, and that box would lie if it hid these too. A tag is a short
+ * standing word with a name -- "deceased", "The Iron Knight" -- drawn as its own line on a pad of
+ * page colour the stylesheet cuts at twice the name's width, so forty characters is past what that
+ * pad will show and three lines is where the stack stops short of the next face down on a plain sheet.
+ */
+export const RELMAP_TAG_MAX = 40;
+export const RELMAP_TAGS_MAX = 3;
+
+/**
+ * The tags under one person's name as something the board can draw: a few short lines, or none.
+ *
+ * ONE STORED SHAPE, an array, and anything else reads as none at all. The editor splits what was
+ * typed into lines before it writes, so a bare string arriving here is not a tag that lost its
+ * brackets but a shape nobody wrote, and reading it as one tag would quietly make a second format.
+ * Whitespace inside a tag collapses to single spaces: a tag is one line by definition, so a line
+ * break that slipped past the editor cannot come out as two.
+ */
+export function readTags(value) {
+	if (!Array.isArray(value)) return [];
+	const tags = [];
+	for (const entry of value) {
+		const tag = clipText(str(entry).replace(/\s+/g, " ").trim(), RELMAP_TAG_MAX).trim();
+		if (!tag) continue;
+		tags.push(tag);
+		if (tags.length >= RELMAP_TAGS_MAX) break;
+	}
+	return tags;
+}
+
+/**
+ * WHERE A PERSON'S NAME AND TAGS STAND ROUND THEIR FACE: under it, as every board has always drawn
+ * them, or above it, or to its left or right. The name and the tags are one plate and move together;
+ * the side is the reader's, per person, chosen in the tags window, for a board where the lines run
+ * over the words under somebody.
+ *
+ * Unknown and absent both read as below, so every board stored before this field existed draws
+ * exactly as it did, with no migration (there is none in this module); and `normalizeGraph` emits
+ * the field on every node, so the undo can read the old side back.
+ */
+export const RELMAP_SIDES = Object.freeze(["below", "above", "left", "right"]);
+export const RELMAP_SIDE_DEFAULT = "below";
+
+/** One stored side, read safely. Unknown and absent both read as below. */
+export function readSide(value) {
+	return RELMAP_SIDES.includes(value) ? value : RELMAP_SIDE_DEFAULT;
+}
+
+/**
  * An id this feature will store.
  *
  * THE DOT IS THE POINT. The character rule is what stops a future "let us just key nodes by their
@@ -383,6 +434,8 @@ export function normalizeGraph(raw) {
 			x: clampReach(node.x),
 			y: clampReach(node.y),
 			note: str(node.note, RELMAP_NOTE_MAX),
+			tags: readTags(node.tags),
+			side: readSide(node.side),
 		};
 	}
 
@@ -484,6 +537,8 @@ const NODE_GATES = Object.freeze({
 	y: clampReach,
 	name: v => str(v, RELMAP_NAME_MAX),
 	note: v => str(v, RELMAP_NOTE_MAX),
+	tags: readTags,
+	side: readSide,
 });
 
 const EDGE_GATES = Object.freeze({
@@ -538,8 +593,10 @@ export function edgePatch(id, fields = {}) {
 }
 
 /** Put somebody on the map. Every field written, so the node is whole from its first write. */
-export function addNodePatch(id, { uuid = null, name = "", img = "", x = 50, y = 50, note = "" } = {}) {
-	return nodePatch(id, { uuid, name, img, x, y, note });
+export function addNodePatch(id, {
+	uuid = null, name = "", img = "", x = 50, y = 50, note = "", tags = [], side = RELMAP_SIDE_DEFAULT,
+} = {}) {
+	return nodePatch(id, { uuid, name, img, x, y, note, tags, side });
 }
 
 /**
@@ -722,7 +779,7 @@ export function seatArrivals(graph, people = [], newId = () => foundry.utils.ran
 		const spot = seats?.[index] ?? freeSpot(taken, room);
 		nodes[id] = {
 			uuid: person.uuid, name: person.name ?? "", img: person.img ?? "",
-			x: spot.left, y: spot.top, note: "",
+			x: spot.left, y: spot.top, note: "", tags: [], side: RELMAP_SIDE_DEFAULT,
 		};
 		taken.push(spot);
 		seated.push(nodeIdentity(person));

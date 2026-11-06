@@ -221,7 +221,7 @@
       `imgStyle` is kept for a picture that needs placing, and is empty today (utils/portrait.js). --}}
 {{#each nodes}}
 <div class="relmap-node{{#if missing}} is-missing{{/if}}"
-     data-relmap-node="{{id}}" style="left:{{left}}%;top:{{top}}%">
+     data-relmap-node="{{id}}" data-relmap-side="{{side}}" style="left:{{left}}%;top:{{top}}%">
   <button type="button" class="relmap-face" data-relmap-open="{{id}}"
           data-tooltip-text="{{tooltip}}" aria-label="{{tooltip}}">
     <span class="relmap-portrait">
@@ -232,7 +232,19 @@
       {{/if}}
     </span>
   </button>
-  <span class="relmap-name">{{name}}</span>
+  {{!-- THE PLATE: the name, and under it the tags -- "deceased", "The Iron Knight" -- one line each.
+        One block hung off the face OUT OF THE FLOW (`.relmap-plate` in the stylesheet): anything in
+        the flow makes the node taller than its circle and carries the circle off the coordinate every
+        line is aimed at. The words stack inside the plate, so the stylesheet owns the pitch, and the
+        plate stands on the side the node says (`data-relmap-side` above: below, as every board drew
+        it, or above, left or right, the reader's choice per person in the tags window); the geometry
+        agrees with all of it in one place (`plateReach`). --}}
+  <div class="relmap-plate">
+    <span class="relmap-name">{{name}}</span>
+    {{#each tags}}
+    <span class="relmap-tag">{{this}}</span>
+    {{/each}}
+  </div>
   {{!-- Focusable, and it does something on a plain CLICK as well as on a drag: dragging it to
         another portrait draws the line, and clicking it asks who to draw to. Drag is the quick way
         and not the only way, which is what keeps the board usable from a keyboard and on a touch
@@ -241,6 +253,16 @@
   <button type="button" class="relmap-handle" data-relmap-handle="{{id}}"
           data-tooltip="{{../linkHint}}" aria-label="{{linkLabel}}">
     <i class="fas fa-link"></i>
+  </button>
+  {{!-- THE PEN, for the tags with the name ("deceased", "The Iron Knight") and the side they stand
+        on: the handle's twin in size, reveal and reach, on the right of the face a little below the
+        middle, or on the left when the plate stands on the right -- the stylesheet says why not a
+        corner (`.relmap-pen`). A double click on the name itself does the same
+        (utils/relmap-drag.js); the pen is what tells a reader the gesture exists, and the keyboard's
+        way to it. Same gate as the handle: no editor on a board the reader may only look at. --}}
+  <button type="button" class="relmap-pen" data-relmap-tags="{{id}}"
+          data-tooltip-text="{{tagsLabel}}" aria-label="{{tagsLabel}}">
+    <i class="fas fa-pen"></i>
   </button>
   {{!-- TAKING SOMEBODY OFF, and the only way to do it with a mouse. It used to be the Delete key
         and nothing else, which is a gesture with nothing on screen to suggest it exists.

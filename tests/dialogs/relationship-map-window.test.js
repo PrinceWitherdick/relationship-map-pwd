@@ -48,11 +48,17 @@ vi.mock("../../module/utils/foundry-compat.js", () => ({
 }));
 /** What the shared chooser was ASKED, which is the whole of what Tidy up's question is. The window
  * never sees a dialog here; the picker's own behaviour is content-prompt.test.js's business. */
-const chooser = { asked: [], answer: null };
+const chooser = { asked: [], answer: null, linesAsked: [], lines: null, side: null, onLines: null };
 vi.mock("../../module/dialogs/content-picker.js", () => ({
 	pickContentOption: config => { chooser.asked.push(config); return Promise.resolve(chooser.answer); },
 	promptForText: () => Promise.resolve(null),
 	promptForTexts: () => Promise.resolve(null),
+	// The lines window answers `{ lines, choice }`, or null for a dismissal; the choice is the side.
+	promptForLines: config => {
+		chooser.linesAsked.push(config);
+		chooser.onLines?.();
+		return Promise.resolve(chooser.lines === null ? null : { lines: chooser.lines, choice: chooser.side ?? "below" });
+	},
 }));
 
 const { RelationshipMapWindow, openRelationshipMap } =
@@ -195,6 +201,10 @@ function windowFor(graph = TWO_PEOPLE, {
 	// Who this reader has selected to move together, which the constructor stands up empty. See
 	// `_selected` on the class.
 	app._selected = [];
+	// Whose tags window is up, and which control the next repaint hands the focus back to, both as
+	// the constructor stands them up. See `_tagPerson`.
+	app._tagging = new Set();
+	app._focusOnRepaint = null;
 	app.id = "relmap-map1";
 	app._pageId = pageId;
 	app._pagesSaid = null;
@@ -1245,7 +1255,7 @@ describe("what a portrait says when it is rested on", () => {
 	const CAST = {
 		version: 1,
 		nodes: {
-			elena: { uuid: "Actor.a1", name: "Elena", img: "", x: 20, y: 30, note: "" },
+			elena: { uuid: "Actor.a1", name: "Elena", img: "", x: 20, y: 30, note: "", tags: ["the Elder"] },
 			ghost: { uuid: "Actor.zz", name: "Tobin", img: "", x: 40, y: 30, note: "" },
 			nobody: { uuid: null, name: "The Miller", img: "", x: 70, y: 30, note: "" },
 		},
@@ -1282,6 +1292,24 @@ describe("what a portrait says when it is rested on", () => {
 	it("says nothing of the kind about somebody who never had an actor", () => {
 		expect(tooltips().nobody).toMatch(/^The Miller\b/);
 		expect(tooltips().nobody).not.toContain("deleted actor");
+	});
+
+	// THE TAGS UNDER THE NAME are part of what the face says, so the reader on a screen reader hears
+	// them: the lines under the name are drawn, not read out. Only where there are any.
+	it("says the tags with the name, and only where there are any", () => {
+		expect(tooltips().elena).toMatch(/^Elena, the Elder\. Double-click/);
+		expect(tooltips().nobody).toMatch(/^The Miller\. /);
+	});
+
+	it("hands the board each person's tags, the side their plate stands on, and the pen's own label", () => {
+		const { app } = windowFor(CAST);
+		const nodes = Object.fromEntries(app._boardContext(app._plan()).nodes.map(node => [node.id, node]));
+		expect(nodes.elena.tags).toEqual(["the Elder"]);
+		expect(nodes.nobody.tags).toEqual([]);
+		// Nobody in this cast chose a side, so every plate stands below, as every board drew it.
+		expect(nodes.elena.side).toBe("below");
+		expect(nodes.nobody.side).toBe("below");
+		expect(nodes.elena.tagsLabel).toBe(TABLE.format("RELMAP.tags.edit", { name: "Elena" }));
 	});
 
 	// THE ONLY PLACE THE RIGHT PRESS IS TAUGHT. It is what puts the trash can on a portrait, and a
@@ -4870,6 +4898,227 @@ describe("a question that outlives the board it was asked about", () => {
 		});
 		await app._removePerson("elena");
 		expect(Object.keys(entry.updates[0]).some(key => key.includes("late"))).toBe(true);
+	});
+});
+
+// THE TAGS UNDER A NAME, asked for in one small window and written at once. What is held here is the
+// contract with the store and the undo: the lines come back as the one leaf `tags`, the step is
+// labelled for the undo button, and a window answered after the reader left the board writes nothing.
+describe("the tags under somebody's name", () => {
+	const TAGS_KEY = "flags.relationship-map-pwd.relationshipMap.nodes.elena.tags";
+	const SIDE_KEY = "flags.relationship-map-pwd.relationshipMap.nodes.elena.side";
+	const was = globalThis.ui;
+	beforeEach(() => {
+		globalThis.game.i18n = TABLE;
+		globalThis.ui = { notifications: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+		chooser.linesAsked = [];
+		chooser.lines = null;
+		chooser.side = null;
+		chooser.onLines = null;
+		forgetAllHistory();
+	});
+	afterEach(() => { globalThis.ui = was; forgetAllHistory(); });
+
+	// On a living board, so the step is recorded and can be taken back: the one leaf `tags` goes
+	// forward as the new list and back as the old one, whole; the side rides in the same write.
+	it("opens on the tags they have, named after them, writes the lines saved, and Undo takes them back", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { entry, pages: [page] } = livingMap([{ id: "p1", name: "Stillwater", graph }]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["the Elder", "deceased"];
+		await app._tagPerson("elena");
+		expect(chooser.linesAsked).toHaveLength(1);
+		expect(chooser.linesAsked[0].title).toBe(TABLE.format("RELMAP.tags.title", { name: "Elena" }));
+		expect(chooser.linesAsked[0].lines).toEqual(["the Elder"]);
+		// The row of sides: the store's four in its order, the stored one (below) to open on.
+		expect(chooser.linesAsked[0].choice.name).toBe("relmapSide");
+		expect(chooser.linesAsked[0].choice.value).toBe("below");
+		expect(chooser.linesAsked[0].choice.options.map(option => option.value)).toEqual(["below", "above", "left", "right"]);
+		expect(chooser.linesAsked[0].choice.options[2].label).toBe(TABLE.localize("RELMAP.tags.side.left"));
+		expect(chooser.linesAsked[0].choice.label).toBe(TABLE.localize("RELMAP.tags.where"));
+		expect(page.updates).toHaveLength(1);
+		expect(page.updates[0][TAGS_KEY]).toEqual(["the Elder", "deceased"]);
+		// The side was left as the window opened on it, so it is not in the write: the store's leaf
+		// rule, which lets somebody else's side survive this reader's tags.
+		expect(page.updates[0][SIDE_KEY]).toBeUndefined();
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+		expect(app._history.peekUndo().label).toBe(TABLE.format("RELMAP.history.tagged", { name: "Elena" }));
+
+		await app._stepHistory("back");
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder"]);
+		await app._stepHistory("forward");
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+	});
+
+	// A side chosen on its own is one write of that leaf, labelled for the undo button like the tags.
+	it("writes the side chosen, and not the lines left alone, and Undo puts the old side back", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { entry, pages: [page] } = livingMap([{ id: "p1", name: "Stillwater", graph }]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["the Elder"];
+		chooser.side = "right";
+		await app._tagPerson("elena");
+		expect(page.updates).toHaveLength(1);
+		expect(page.updates[0][SIDE_KEY]).toBe("right");
+		expect(page.updates[0][TAGS_KEY]).toBeUndefined();
+		expect(readGraph(page).nodes.elena.side).toBe("right");
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder"]);
+		expect(app._history.peekUndo().label).toBe(TABLE.format("RELMAP.history.tagged", { name: "Elena" }));
+
+		await app._stepHistory("back");
+		expect(readGraph(page).nodes.elena.side).toBe("below");
+		await app._stepHistory("forward");
+		expect(readGraph(page).nodes.elena.side).toBe("right");
+	});
+
+	// Both changed: one write carrying both leaves, one step, and Undo takes both back together.
+	it("writes the lines and the side together when both changed, as one step", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { entry, pages: [page] } = livingMap([{ id: "p1", name: "Stillwater", graph }]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["deceased"];
+		chooser.side = "above";
+		await app._tagPerson("elena");
+		expect(page.updates).toHaveLength(1);
+		expect(page.updates[0][TAGS_KEY]).toEqual(["deceased"]);
+		expect(page.updates[0][SIDE_KEY]).toBe("above");
+		await app._stepHistory("back");
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder"]);
+		expect(readGraph(page).nodes.elena.side).toBe("below");
+		expect(app._history.canUndo).toBe(false);
+	});
+
+	// Foundry writes nothing for an empty diff, and a step recorded for one would do nothing on Undo
+	// while still throwing the redo stack away. So a Save that changed nothing is not a write at all.
+	it("writes nothing, and records no step, for a Save that changed nothing, so Redo survives it", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { entry, pages: [page] } = livingMap([{ id: "p1", name: "Stillwater", graph }]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["the Elder", "deceased"];
+		await app._tagPerson("elena");
+		await app._stepHistory("back");
+		expect(app._history.canRedo).toBe(true);
+		const writes = page.updates.length;
+		// Saved as it stands: the same one line, the same side, with the spaces a reader might leave.
+		chooser.lines = ["  the Elder "];
+		chooser.side = "below";
+		await app._tagPerson("elena");
+		expect(page.updates).toHaveLength(writes);
+		expect(app._history.canRedo).toBe(true);
+		await app._stepHistory("forward");
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+	});
+
+	// Two readers at two leaves: the side somebody else chose while this window stood is not in
+	// this reader's answer, so it is not in this reader's write.
+	it("keeps a side somebody else chose while the window was up, writing only the lines", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { entry, pages: [page] } = livingMap([{ id: "p1", name: "Stillwater", graph }]);
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["the Elder", "deceased"];
+		chooser.onLines = () => { page.update({ [SIDE_KEY]: "right" }); };
+		await app._tagPerson("elena");
+		const mine = page.updates.at(-1);
+		expect(mine[TAGS_KEY]).toEqual(["the Elder", "deceased"]);
+		expect(mine[SIDE_KEY]).toBeUndefined();
+		expect(readGraph(page).nodes.elena.side).toBe("right");
+		expect(readGraph(page).nodes.elena.tags).toEqual(["the Elder", "deceased"]);
+	});
+
+	// A double click on the pen is two clicks, and each used to open a window of its own.
+	it("opens no second window for a person whose window is up, and still one for somebody else", async () => {
+		const { app } = windowFor(structuredClone(TWO_PEOPLE));
+		chooser.lines = null;
+		let again;
+		let other;
+		chooser.onLines = () => {
+			chooser.onLines = null;
+			again = app._tagPerson("elena");
+			other = app._tagPerson("stefan");
+		};
+		await app._tagPerson("elena");
+		await again;
+		await other;
+		expect(chooser.linesAsked.map(asked => asked.title)).toEqual([
+			TABLE.format("RELMAP.tags.title", { name: "Elena" }),
+			TABLE.format("RELMAP.tags.title", { name: "Stefan" }),
+		]);
+		// And once it is down, the same person can be asked about again.
+		await app._tagPerson("elena");
+		expect(chooser.linesAsked).toHaveLength(3);
+	});
+
+	// The Save button stands outside this window, so the press on it cleared `_pointerWithin`, and
+	// DialogV2 shuts without handing the focus anywhere: a Ctrl+Z pressed next would have gone to
+	// core's canvas undo. The window claims it back and puts the focus on the pen, whichever way the
+	// small window closed, and asks the repaint a write brings to put it there again.
+	it("claims Ctrl+Z back and puts the focus on the pen when the window closes, saved or not", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		const { entry, pages: [page] } = livingMap([{ id: "p1", name: "Stillwater", graph }]);
+		const { app, root } = windowFor(null, { entry, pageId: "p1" });
+		const pen = { focus: vi.fn() };
+		root.children['[data-relmap-tags="elena"]'] = pen;
+		app._pointerWithin = false;
+		chooser.lines = null;
+		await app._tagPerson("elena");
+		expect(app._pointerWithin).toBe(true);
+		expect(pen.focus).toHaveBeenCalledTimes(1);
+		expect(app._focusOnRepaint).toBeNull();
+
+		app._pointerWithin = false;
+		chooser.lines = ["deceased"];
+		await app._tagPerson("elena");
+		expect(app._pointerWithin).toBe(true);
+		expect(pen.focus).toHaveBeenCalledTimes(2);
+		expect(page.updates).toHaveLength(1);
+		expect(app._focusOnRepaint).toBe('[data-relmap-tags="elena"]');
+	});
+
+	it("writes nothing when the window is dismissed", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		chooser.lines = null;
+		await app._tagPerson("elena");
+		expect(entry.updates).toEqual([]);
+	});
+
+	// Saving an empty box is a real answer: it takes the tags off.
+	it("takes the tags off when the box is saved empty", async () => {
+		const graph = structuredClone(TWO_PEOPLE);
+		graph.nodes.elena.tags = ["the Elder"];
+		const { app, entry } = windowFor(graph);
+		chooser.lines = [];
+		await app._tagPerson("elena");
+		expect(entry.updates[0][TAGS_KEY]).toEqual([]);
+	});
+
+	// The store's bound, applied on the way in, so what is stored is what the board will draw.
+	it("holds what is saved to the store's own bound", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		chooser.lines = ["one", "two", "three", "four"];
+		await app._tagPerson("elena");
+		expect(entry.updates[0][TAGS_KEY]).toEqual(["one", "two", "three"]);
+	});
+
+	it("asks nothing about somebody who is not on the board", async () => {
+		const { app, entry } = windowFor(structuredClone(TWO_PEOPLE));
+		await app._tagPerson("nobody-here");
+		expect(chooser.linesAsked).toEqual([]);
+		expect(entry.updates).toEqual([]);
+	});
+
+	it("writes nothing to a board the reader left while the window was up, and says so", async () => {
+		const entry = TWO_BOARDS();
+		const { app } = windowFor(null, { entry, pageId: "p1" });
+		chooser.lines = ["deceased"];
+		chooser.onLines = () => { app._pageId = "p2"; };
+		await app._tagPerson("elena");
+		expect(entry.pages.contents.every(page => page.updates.length === 0)).toBe(true);
+		expect(globalThis.ui.notifications.info).toHaveBeenCalled();
 	});
 });
 

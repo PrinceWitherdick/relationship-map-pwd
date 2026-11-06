@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // the contract the caller relies on: one window, a box per field under its own label, every value
 // trimmed, a blank answered as "", a dismissal as null, and typed text never read as markup.
 
-import { promptForText, promptForTexts } from "../../module/dialogs/content-picker.js";
+import { promptForLines, promptForText, promptForTexts, splitLines } from "../../module/dialogs/content-picker.js";
 
 let asked;
 const savedDocument = globalThis.document;
@@ -139,5 +139,102 @@ describe("one name asked", () => {
 		await expect(promptForText({ title: "t", buttonLabel: "b" })).resolves.toBe("New");
 		foundry.applications.api.DialogV2.prompt.mockResolvedValueOnce(null);
 		await expect(promptForText({ title: "t", buttonLabel: "b" })).resolves.toBeNull();
+	});
+});
+
+// THE TAGS UNDER A NAME, asked for as a few lines in one box. The contract the window relies on: the
+// box opens on the lines it was given, what comes back is the lines typed (trimmed, blanks dropped)
+// with the choice beside them, null for a dismissal, and typed text is never read as markup.
+describe("a few lines asked for in one box", () => {
+	it("opens on the lines it was given, one per line, and never reads them as markup", async () => {
+		await promptForLines({
+			title: "Tags for Elena", buttonLabel: "Save", lines: ["the Elder", "<b>deceased</b>"],
+			hint: "One per line.", placeholder: "The Iron Knight",
+		});
+		expect(foundry.applications.api.DialogV2.prompt).toHaveBeenCalledTimes(1);
+		expect(asked.window.title).toBe("Tags for Elena");
+		expect(asked.ok.label).toBe("Save");
+		expect(asked.rejectClose).toBe(false);
+		const html = asked.content.innerHTML;
+		expect(html).toContain('<textarea name="relmapLines" rows="3" autofocus');
+		expect(html).toContain("the Elder\n&lt;b&gt;deceased&lt;/b&gt;</textarea>");
+		expect(html).not.toContain("<b>");
+		expect(html).toContain('placeholder="The Iron Knight"');
+		expect(html).toContain(">One per line.</p>");
+	});
+
+	// A textarea with no label is read out by its placeholder, here a sample tag. The box is named by
+	// the window's title and described by the hint, through an id on the hint and nothing on the
+	// wrapper, which DialogV2 wants bare.
+	it("is named for a screen reader by the title and described by the hint", async () => {
+		await promptForLines({ title: 'Tags for "Elena"', buttonLabel: "Save", hint: "One per line.", placeholder: "The Iron Knight" });
+		const html = asked.content.innerHTML;
+		expect(html).toContain('aria-label="Tags for &quot;Elena&quot;"');
+		const described = html.match(/aria-describedby="([^"]+)"/)?.[1];
+		expect(described).toMatch(/^relmap-text-prompt-hint-\d+$/);
+		expect(html).toContain(`<p class="relmap-text-prompt-lead" id="${described}">One per line.</p>`);
+		// Another window open at the same time has a hint of its own.
+		await promptForLines({ title: "Tags for Stefan", buttonLabel: "Save", hint: "One per line." });
+		expect(asked.content.innerHTML.match(/aria-describedby="([^"]+)"/)?.[1]).not.toBe(described);
+	});
+
+	it("describes the box by nothing when there is no hint", async () => {
+		await promptForLines({ title: "Tags", buttonLabel: "Save" });
+		expect(asked.content.innerHTML).toContain('aria-label="Tags"');
+		expect(asked.content.innerHTML).not.toContain("aria-describedby");
+		expect(asked.content.innerHTML).not.toContain(' id="');
+	});
+
+	it("answers the lines typed, trimmed, with the blank ones dropped, and no choice where none was asked", async () => {
+		await promptForLines({ title: "Tags", buttonLabel: "Save" });
+		expect(asked.content.innerHTML).not.toContain("fieldset");
+		expect(press({ relmapLines: "  the Elder \n\n deceased\r\n   \n" })).toEqual({ lines: ["the Elder", "deceased"], choice: null });
+		expect(press({ relmapLines: "" })).toEqual({ lines: [], choice: null });
+		expect(press({})).toEqual({ lines: [], choice: null });
+	});
+
+	// ONE CHOICE OFF A SHORT ROW with the lines (where the name and tags stand): a fieldset of radios
+	// under the hint, the caller's value checked where it is one of the options and the first otherwise,
+	// and the answer carries the lines and the choice together.
+	it("asks one choice off a row of radios under the lines, and answers both together", async () => {
+		const choice = { label: "Where <they> go", name: "relmapSide", value: "right", options: [
+			{ value: "below", label: "Below" }, { value: "above", label: "Above" },
+			{ value: "left", label: "Left" }, { value: "right", label: "Right" },
+		] };
+		await promptForLines({ title: "Tags", buttonLabel: "Save", hint: "One per line.", choice });
+		const html = asked.content.innerHTML;
+		expect(html).toContain('<legend class="relmap-text-prompt-label">Where &lt;they&gt; go</legend>');
+		expect(html.match(/<input type="radio" name="relmapSide"/g)).toHaveLength(4);
+		expect(html).toContain('<input type="radio" name="relmapSide" value="right" checked><span>Right</span>');
+		expect(html.match(/ checked>/g)).toHaveLength(1);
+		expect(html.indexOf("relmapLines")).toBeLessThan(html.indexOf("One per line."));
+		expect(html.indexOf("One per line.")).toBeLessThan(html.indexOf("relmap-text-prompt-choice"));
+		expect(press({ relmapLines: "a\nb", relmapSide: "left" })).toEqual({ lines: ["a", "b"], choice: "left" });
+		// A form that says nothing about the row answers what was checked when it opened.
+		expect(press({ relmapLines: "" })).toEqual({ lines: [], choice: "right" });
+	});
+
+	it("checks the first option when the value it is given is none of them", async () => {
+		await promptForLines({ title: "Tags", buttonLabel: "Save", choice: {
+			label: "Where", name: "relmapSide", value: "sideways",
+			options: [{ value: "below", label: "Below" }, { value: "above", label: "Above" }],
+		} });
+		expect(asked.content.innerHTML).toContain('value="below" checked>');
+		expect(asked.content.innerHTML.match(/ checked>/g)).toHaveLength(1);
+		expect(press({})).toEqual({ lines: [], choice: "below" });
+	});
+
+	// The caret goes to the END of what is there: a reader adding a line must not type over the first.
+	it("puts the caret after the last line rather than selecting everything", async () => {
+		await promptForLines({ title: "Tags", buttonLabel: "Save", lines: ["the Elder"] });
+		const box = { value: "the Elder", focus: vi.fn(), setSelectionRange: vi.fn() };
+		asked.render({}, { element: { querySelector: () => box } });
+		expect(box.focus).toHaveBeenCalled();
+		expect(box.setSelectionRange).toHaveBeenCalledWith(9, 9);
+	});
+
+	it("splits lines the same way on its own", () => {
+		expect(splitLines("a\nb")).toEqual(["a", "b"]);
+		expect(splitLines(null)).toEqual([]);
 	});
 });
