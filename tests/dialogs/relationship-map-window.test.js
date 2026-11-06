@@ -2839,6 +2839,21 @@ describe("keeping up with pages being changed elsewhere", () => {
 		expect(app.sync).toHaveBeenCalled();
 	});
 
+	// An adventure imported again, a compendium imported with its ids kept: the actor is back under
+	// the uuid the board holds, and the dashed rim has to come off without anybody else writing.
+	it("repaints when an actor on the board is made again under their old id, and not for a stranger", async () => {
+		const on = hooksOf();
+		const { app } = windowFor(ACTORS);
+		app.sync = vi.fn();
+		app._wireSync();
+		on.get("createActor")({ uuid: "Actor.zz" });
+		await new Promise(r => setTimeout(r, 90));
+		expect(app.sync).not.toHaveBeenCalled();
+		on.get("createActor")({ uuid: "Actor.b2" });
+		await new Promise(r => setTimeout(r, 90));
+		expect(app.sync).toHaveBeenCalledTimes(1);
+	});
+
 	// A rename is the STRIP's business whichever board it happened to: renaming a page this reader
 	// is not on still changes what the strip says.
 	it("rewrites the strip when any board is renamed, without repainting the board", () => {

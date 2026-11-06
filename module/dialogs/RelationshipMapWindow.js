@@ -1760,6 +1760,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 		on("deleteActor", actor => {
 			if (this._holdsActor(actor?.uuid)) repaint();
 		});
+		// AND ONE MADE, for the actor who comes back under their old id: an adventure imported again
+		// to reset it, a compendium imported with its ids kept. The board had drawn them gone -- the
+		// dashed rim, the stored name and picture -- and nothing else tells it they are back.
+		on("createActor", actor => {
+			if (this._holdsActor(actor?.uuid)) repaint();
+		});
 	}
 
 	/**
