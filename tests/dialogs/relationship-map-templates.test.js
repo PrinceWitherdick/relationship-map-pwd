@@ -1293,12 +1293,10 @@ describe("a portrait's box is the circle and nothing else", () => {
 		expect(sub).not.toMatch(/line-clamp/);
 	});
 
-	// The names dial is written on the window's root and sizes the BOARD's pills; the person bar's pills
-	// (its worn row, the form's preview) are chrome and stay at their base size.
-	// It reaches a pill only through the board's own rows (`--relmap-chip-scale`), so nothing in the bar
-	// has to switch it off.
-	it("stops the names dial at the person bar", () => {
-		expect(rule("chips")).toMatch(/--relmap-chip-scale:\s*var\(--relmap-name-scale, 1\);/);
+	// The names dial grows the name and the label, never the pills: not the board's, not the bar's.
+	it("keeps the names dial off every pill", () => {
+		expect(rule("chips")).toMatch(/--relmap-chip-scale:\s*1;/);
+		expect(css).not.toMatch(/--relmap-chip-scale:\s*var\(--relmap-name-scale/);
 		expect(rule("chip")).not.toMatch(/--relmap-name-scale/);
 		const bar = css.match(/(?:^|\n)div\.relmap-personbar\s*\{([^}]*)\}/)?.[1] ?? "";
 		expect(bar).not.toMatch(/--relmap-name-scale/);

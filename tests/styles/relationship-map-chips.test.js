@@ -92,7 +92,7 @@ describe("the person bar's chips", () => {
 	// The dial reaches a pill only inside the board's own rows, so the bar's pills (its worn row, the
 	// form's preview) need nothing to stop it.
 	it("keeps the bar's pills at their base size, whatever the names dial says", () => {
-		expect(declared(rule(".relmap-chips"), "--relmap-chip-scale")).toBe("var(--relmap-name-scale, 1)");
+		expect(declared(rule(".relmap-chips"), "--relmap-chip-scale")).toBe("1");
 		expect(rule(".relmap-chip")).not.toMatch(/--relmap-name-scale/);
 		expect(rule("div.relmap-personbar")).not.toMatch(/--relmap-name-scale/);
 	});

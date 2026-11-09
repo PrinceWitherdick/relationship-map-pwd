@@ -1979,7 +1979,7 @@ textarea.relmap-personbar-field {
 
 /* A HEADING, NOT A HINT: bold and in the body ink, so it stands apart from the quiet hint above it. */
 .relmap-personbar-where {
-	margin: 4px 0 11px;
+	margin: 4px 0;
 	padding: 0;
 	color: var(--relmap-text-body);
 	font-size: 13px;
@@ -2697,13 +2697,13 @@ button.relmap-subtitle:focus-visible {
    which pills share a row, and this draws each row as given and never wraps, so the height a group
    outline reaches round (`chipReach`) is the height drawn: the gap above the first row and between
    rows is `RELMAP_CHIP_GAP_PX`, and the pill's height is `RELMAP_CHIP_H_PX`, both read from the
-   geometry (`--relmap-chip-gap`, `--relmap-chip-h`). The widths, paddings and type grow with the
-   names dial with the pill, which is what keeps the packing the same at every setting of it.
+   geometry (`--relmap-chip-gap`, `--relmap-chip-h`).
 
-   ⚠ THE DIAL REACHES A PILL THROUGH `--relmap-chip-scale`, which only the board's own rows set. The
-   same pill is drawn in the person bar and the chip form, which are chrome and keep their base size. */
+   ⚠ THE NAMES DIAL DOES NOT REACH THE PILLS. It grows the name and the label; the chips under them
+   stay at their base size at every setting of it (`personReach` measures them unscaled too). The
+   person bar shrinks its own copies through `--relmap-chip-scale`. */
 .relmap-chips {
-	--relmap-chip-scale: var(--relmap-name-scale, 1);
+	--relmap-chip-scale: 1;
 	display: flex;
 	flex-direction: column;
 	align-items: center;

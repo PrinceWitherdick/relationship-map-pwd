@@ -667,8 +667,9 @@ export function personReach(nameScale = 1) {
 		nameLine: Math.round(NAME_CHIP_PX * scale),
 		scale,
 		subX: Math.max(x, SUBTITLE_REACH_X * scale),
-		chipH: Math.round(RELMAP_CHIP_H_PX * scale),
-		chipX: Math.max(x, CHIP_REACH_X * scale),
+		// The chips do not grow with the names dial.
+		chipH: RELMAP_CHIP_H_PX,
+		chipX: Math.max(x, CHIP_REACH_X),
 	};
 }
 
@@ -713,7 +714,7 @@ function plateWidth(node, reach) {
 	let chipsW = 0;
 	for (const row of node?.chipLaid?.rows ?? []) {
 		const w = row.reduce((sum, chip, i) => sum + (i ? RELMAP_CHIP_GAP_PX : 0) + chipWidthPx(chip), 0);
-		chipsW = Math.max(chipsW, Math.min(RELMAP_CHIP_ROW_W, w) * s);
+		chipsW = Math.max(chipsW, Math.min(RELMAP_CHIP_ROW_W, w));
 	}
 	return Math.max(nameW, labelW, chipsW);
 }

@@ -318,6 +318,15 @@ describe("how far chips reach under a person", () => {
 			.toBe(RELMAP_SUBTITLE_REACH_PX + RELMAP_CHIP_GAP_PX + RELMAP_CHIP_H_PX);
 	});
 
+	it("keeps the chips at their base size whatever the names dial says", () => {
+		const chipped = { chipLaid: { rows: [[], []] } };
+		for (const dial of [0.5, 1.5, 2]) {
+			const reach = personReach(dial);
+			expect(reach.chipH).toBe(RELMAP_CHIP_H_PX);
+			expect(underReach(chipped, reach).down).toBe(chipReach(2));
+		}
+	});
+
 	it("grows a group's outline, its floor and the board's frame round a chipped person", () => {
 		const board = { width: 1200, height: 960 };
 		const plain = { x: 50, y: 50 };
