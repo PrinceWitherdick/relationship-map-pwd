@@ -70,7 +70,7 @@
       "cancel": "Cancel",
       "delete": "Delete this chip",
       "deleteTitle": "Delete the chip {chip}?",
-      "deleteBody": "This takes {chip} off everyone wearing it on this map.",
+      "deleteBody": "When you press Save, this takes {chip} off everyone wearing it on this map.",
       "deleteElsewhere": "It is also on {count} other map(s) you can change, and is taken off everyone there too. Only this map's part can be undone.",
       "usedTwin": "A chip called {chip} already exists, so that one was used, with its own colour and icon.",
       "deleteYes": "Delete",

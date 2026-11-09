@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RelmapPersonBar } from "../../module/utils/relmap-person-bar.js";
+import { PREVIEW_MAX_MS, PREVIEW_PAUSE_MS, RelmapPersonBar } from "../../module/utils/relmap-person-bar.js";
 import { boardEl } from "../fakes/pointer-board.js";
 
 // THE BAR THE LABEL UNDER A PERSON'S NAME RAISES ("Iron Knight", "Deceased"): a box of up to three
@@ -34,7 +34,7 @@ function barDom() {
 	return { root, view, bar, field, sides, italic, save, title, close, head };
 }
 
-function setUp({ node = { name: "Simon", subtitle: "Squire" }, canEdit = () => true } = {}) {
+function setUp({ node = { name: "Simon", subtitle: "Squire" }, canEdit = () => true, italicDefault = () => true } = {}) {
 	const dom = barDom();
 	const state = { node };
 	const handlers = {
@@ -42,9 +42,11 @@ function setUp({ node = { name: "Simon", subtitle: "Squire" }, canEdit = () => t
 			painted: () => ({ width: 1000, height: 800 }), offset: { x: 0, y: 0 }, viewSize: { width: 1000, height: 800 },
 		}),
 		personAt: vi.fn(id => (id === "n1" && state.node ? { node: state.node, at: { left: 50, top: 50 } } : null)),
-		onField: vi.fn(() => Promise.resolve(true)),
+		onSave: vi.fn(() => Promise.resolve(true)),
+		onPreview: vi.fn(),
 		onPicked: vi.fn(),
 		canEdit,
+		italicDefault: vi.fn(italicDefault),
 	};
 	const bar = new RelmapPersonBar(dom.root, handlers);
 	return { dom, state, handlers, bar };
@@ -57,11 +59,13 @@ const key = (target, k) => {
 	};
 	return ev;
 };
-// The box is read on Save, so typing is only its value changing: nothing listens for it.
+// Typing is the box's value changing and its `input`, which shows the change on the board.
 const type = (dom, words) => {
 	dom.field.value = words;
-	expect(dom.field.handlers.input).toBeUndefined();
+	dom.field.handlers.input.forEach(fn => fn({ target: dom.field }));
 };
+/** The bar's change as `onSave` and `onPreview` take it, with only label fields changed. */
+const change = (fields = {}) => ({ fields, wear: [], off: [], defs: {}, drop: [] });
 const keydown = (dom, ev) => { dom.bar.handlers.keydown.forEach(fn => fn(ev)); return ev; };
 const sideButton = (dom, side) => dom.sides.find(radio => radio.value === side);
 /** Which side's radio is checked. */
@@ -132,11 +136,11 @@ describe("writing a label, on Save", () => {
 		bar.open("n1");
 		type(dom, "Deceased");
 		vi.advanceTimersByTime(5000);
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 		expect(bar.isWriting()).toBe(false);
 		press(dom, "save");
-		expect(handlers.onField).toHaveBeenCalledTimes(1);
-		expect(handlers.onField).toHaveBeenCalledWith("n1", { subtitle: "Deceased" });
+		expect(handlers.onSave).toHaveBeenCalledTimes(1);
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ subtitle: "Deceased" }));
 		expect(dom.bar.hidden).toBe(true);
 	});
 
@@ -145,7 +149,7 @@ describe("writing a label, on Save", () => {
 		bar.open("n1");
 		type(dom, "Iron Knight");
 		const ev = keydown(dom, Object.assign(key(dom.field, "Enter"), { ctrlKey: true }));
-		expect(handlers.onField).toHaveBeenCalledWith("n1", { subtitle: "Iron Knight" });
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ subtitle: "Iron Knight" }));
 		expect(dom.bar.hidden).toBe(true);
 		expect(ev.propagationStopped).toBe(true);
 	});
@@ -161,7 +165,7 @@ describe("writing a label, on Save", () => {
 		expect(dom.bar.hidden).toBe(false);
 		type(dom, "The Iron Knight\nLord of the Vale\nSworn");
 		expect(keydown(dom, key(dom.field, "Enter")).defaultPrevented).toBe(true);
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 	});
 
 	it("saves the lines as they were typed, tidied", () => {
@@ -169,7 +173,7 @@ describe("writing a label, on Save", () => {
 		bar.open("n1");
 		type(dom, "  The Iron   Knight \n\nLord of the Vale\n");
 		press(dom, "save");
-		expect(handlers.onField).toHaveBeenCalledWith("n1", { subtitle: "The Iron Knight\nLord of the Vale" });
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ subtitle: "The Iron Knight\nLord of the Vale" }));
 	});
 
 	it("rubs a label out when the box is emptied", () => {
@@ -177,7 +181,7 @@ describe("writing a label, on Save", () => {
 		bar.open("n1");
 		type(dom, "");
 		press(dom, "save");
-		expect(handlers.onField).toHaveBeenCalledWith("n1", { subtitle: "" });
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ subtitle: "" }));
 	});
 
 	it("writes the side and the italics with the label, only what changed, in one write", () => {
@@ -186,8 +190,8 @@ describe("writing a label, on Save", () => {
 		press(dom, "side", "left");
 		press(dom, "italic");
 		press(dom, "save");
-		expect(handlers.onField).toHaveBeenCalledTimes(1);
-		expect(handlers.onField).toHaveBeenCalledWith("n1", { side: "left", italic: false });
+		expect(handlers.onSave).toHaveBeenCalledTimes(1);
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ side: "left", italic: false }));
 	});
 
 	it("shows the side and the italics the person has, and marks the one chosen", () => {
@@ -208,7 +212,7 @@ describe("writing a label, on Save", () => {
 		type(dom, "Traitor");
 		press(dom, "side", "right");
 		keydown(dom, key(dom.field, "Escape"));
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 		expect(dom.field.value).toBe("Squire");
 		expect(dom.bar.hidden).toBe(true);
 		bar.open("n1");
@@ -220,7 +224,7 @@ describe("writing a label, on Save", () => {
 		bar.open("n1");
 		type(dom, "Iron Knight");
 		bar.close();
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 		expect(bar.flush()).toBeUndefined();
 		bar.open("n1");
 		expect(dom.field.value).toBe("Squire");
@@ -230,7 +234,7 @@ describe("writing a label, on Save", () => {
 		const { dom, bar, handlers } = setUp();
 		bar.open("n1");
 		press(dom, "save");
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 		expect(dom.bar.hidden).toBe(true);
 	});
 
@@ -271,7 +275,7 @@ describe("the bar's title and its close", () => {
 		type(dom, "Traitor");
 		press(dom, "side", "left");
 		press(dom, "close");
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 		expect(dom.bar.hidden).toBe(true);
 		expect(dom.field.value).toBe("Squire");
 	});
@@ -337,6 +341,153 @@ describe("moving the bar by its title", () => {
 	});
 });
 
+// A NEW LABEL STARTS IN THE ITALICS THE LAST ONE SAVED ON THIS MAP HAD.
+describe("the italics a new label starts in", () => {
+	const upright = () => false;
+
+	it("starts a person with no label on the map's last choice, and writes it with the words", () => {
+		const { dom, bar, handlers } = setUp({ node: { name: "Vera", subtitle: "" }, italicDefault: upright });
+		bar.open("n1");
+		expect(dom.italic.checked).toBe(false);
+		type(dom, "Smith");
+		press(dom, "save");
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ subtitle: "Smith", italic: false }));
+	});
+
+	it("writes nothing for the starting italics alone, while there are no words", () => {
+		const { dom, bar, handlers } = setUp({ node: { name: "Vera", subtitle: "" }, italicDefault: upright });
+		bar.open("n1");
+		press(dom, "save");
+		expect(handlers.onSave).not.toHaveBeenCalled();
+		expect(dom.bar.hidden).toBe(true);
+	});
+
+	it("keeps the reader's own tick over the starting italics", () => {
+		const { dom, bar, handlers } = setUp({ node: { name: "Vera", subtitle: "" }, italicDefault: upright });
+		bar.open("n1");
+		press(dom, "italic");
+		type(dom, "Smith");
+		press(dom, "save");
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ subtitle: "Smith" }));
+	});
+
+	it("leaves a label already there in its own italics", () => {
+		const { dom, bar, handlers } = setUp({ italicDefault: upright });
+		bar.open("n1");
+		expect(dom.italic.checked).toBe(true);
+		expect(handlers.italicDefault).not.toHaveBeenCalled();
+	});
+});
+
+// EVERY CHANGE SHOWS ON THE BOARD AS IT IS MADE, and closing without Save takes it back off.
+describe("showing the change before it is saved", () => {
+	const last = handlers => handlers.onPreview.mock.calls.at(-1);
+
+	it("shows the label once typing pauses, tidied, and the side and italics as soon as they are chosen", () => {
+		const { dom, bar, handlers } = setUp();
+		bar.open("n1");
+		type(dom, "  Iron   Knight ");
+		expect(handlers.onPreview).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(PREVIEW_PAUSE_MS);
+		expect(last(handlers)).toEqual(["n1", change({ subtitle: "Iron Knight" })]);
+		press(dom, "side", "left");
+		expect(last(handlers)).toEqual(["n1", change({ subtitle: "Iron Knight", side: "left" })]);
+		press(dom, "italic");
+		expect(last(handlers)).toEqual(["n1", change({ subtitle: "Iron Knight", side: "left", italic: false })]);
+		expect(handlers.onSave).not.toHaveBeenCalled();
+	});
+
+	// ⚠ EVERY SHOWING REPAINTS THE WHOLE BOARD: a word typed is one, not one per key.
+	it("shows a burst of typing once, after the pause", () => {
+		const { dom, bar, handlers } = setUp();
+		bar.open("n1");
+		for (const words of ["K", "Kn", "Kni", "Knig", "Knigh", "Knight"]) {
+			type(dom, words);
+			vi.advanceTimersByTime(40);
+		}
+		vi.advanceTimersByTime(PREVIEW_PAUSE_MS);
+		expect(handlers.onPreview).toHaveBeenCalledTimes(1);
+		expect(last(handlers)).toEqual(["n1", change({ subtitle: "Knight" })]);
+	});
+
+	it("keeps up with typing that never pauses, a few times a second", () => {
+		const { dom, bar, handlers } = setUp();
+		bar.open("n1");
+		let words = "";
+		for (let i = 0; i < 20; i++) {
+			words += "a";
+			type(dom, words);
+			vi.advanceTimersByTime(50);
+		}
+		// A thousand milliseconds of typing, never left more than PREVIEW_MAX_MS unshown.
+		expect(handlers.onPreview.mock.calls.length).toBeGreaterThanOrEqual(Math.floor(1000 / PREVIEW_MAX_MS));
+		expect(handlers.onPreview.mock.calls.length).toBeLessThan(6);
+	});
+
+	it("does not show the same change twice, and shows typing still waiting at once on a press", () => {
+		const { dom, bar, handlers } = setUp();
+		bar.open("n1");
+		type(dom, "Knight");
+		vi.advanceTimersByTime(PREVIEW_PAUSE_MS);
+		// A trailing space tidies away: the same change, so the board is not repainted.
+		type(dom, "Knight ");
+		vi.advanceTimersByTime(PREVIEW_PAUSE_MS);
+		expect(handlers.onPreview).toHaveBeenCalledTimes(1);
+		type(dom, "Knights");
+		press(dom, "side", "left");
+		expect(last(handlers)).toEqual(["n1", change({ subtitle: "Knights", side: "left" })]);
+		vi.advanceTimersByTime(PREVIEW_MAX_MS);
+		expect(handlers.onPreview).toHaveBeenCalledTimes(2);
+	});
+
+	it("shows nothing changed once a change is undone by hand", () => {
+		const { dom, bar, handlers } = setUp();
+		bar.open("n1");
+		type(dom, "Knight");
+		vi.advanceTimersByTime(PREVIEW_PAUSE_MS);
+		type(dom, "Squire");
+		vi.advanceTimersByTime(PREVIEW_PAUSE_MS);
+		expect(last(handlers)).toEqual(["n1", null]);
+	});
+
+	it("drops typing still waiting to be shown when the bar is let go, and saves it on Save", () => {
+		const { dom, bar, handlers } = setUp();
+		bar.open("n1");
+		type(dom, "Traitor");
+		bar.close();
+		vi.advanceTimersByTime(PREVIEW_MAX_MS);
+		expect(last(handlers)).toEqual(["n1", null]);
+		bar.open("n1");
+		type(dom, "Traitor");
+		press(dom, "save");
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ subtitle: "Traitor" }));
+	});
+
+	it.each([
+		["Escape", dom => keydown(dom, key(dom.field, "Escape"))],
+		["the x", dom => press(dom, "close")],
+		["a click away", (dom, bar) => bar.close()],
+	])("takes the change off the board on %s", (_how, letGo) => {
+		const { dom, bar, handlers } = setUp();
+		bar.open("n1");
+		type(dom, "Traitor");
+		press(dom, "side", "right");
+		letGo(dom, bar);
+		expect(last(handlers)).toEqual(["n1", null]);
+		expect(handlers.onSave).not.toHaveBeenCalled();
+	});
+
+	it("takes the last person's change off the board when the bar opens on somebody else", () => {
+		const { dom, bar, handlers } = setUp();
+		handlers.personAt.mockImplementation(id => ({ node: { name: id, subtitle: "" }, at: { left: 50, top: 50 } }));
+		bar.open("n1");
+		type(dom, "Traitor");
+		bar.open("n2");
+		expect(handlers.onPreview).toHaveBeenCalledWith("n1", null);
+		expect(dom.field.value).toBe("");
+	});
+});
+
 describe("the board repainted underneath", () => {
 	it("keeps what the reader is changing when somebody else changes the board", () => {
 		const { dom, state, bar } = setUp();
@@ -356,7 +507,7 @@ describe("the board repainted underneath", () => {
 		bar.refresh();
 		expect(dom.field.value).toBe("Squire");
 		press(dom, "save");
-		expect(handlers.onField).toHaveBeenCalledWith("n1", { side: "above" });
+		expect(handlers.onSave).toHaveBeenCalledWith("n1", change({ side: "above" }));
 	});
 
 	it("lets go, writing nothing, when the person is taken off the board", () => {
@@ -366,7 +517,7 @@ describe("the board repainted underneath", () => {
 		state.node = null;
 		bar.refresh();
 		expect(dom.bar.hidden).toBe(true);
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 	});
 
 	// AUDIT 2026-11-02: a bar left standing idle kept the OLD words after an undo or another
@@ -380,7 +531,7 @@ describe("the board repainted underneath", () => {
 		expect(checkedSide(dom)).toEqual(["right"]);
 		expect(dom.italic.checked).toBe(false);
 		press(dom, "save");
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 	});
 
 	it("says whose label it is holding, for a screen reader", () => {
@@ -405,7 +556,7 @@ describe("the edges of the label bar", () => {
 		const ev = keydown(dom, held);
 		expect(ev.defaultPrevented).toBe(true);
 		expect(dom.bar.hidden).toBe(false);
-		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(handlers.onSave).not.toHaveBeenCalled();
 	});
 
 	// Clamped up from under the name, a bar near the bottom of the view sat over the face it is about.
@@ -430,7 +581,7 @@ describe("the edges of the label bar", () => {
 			type(dom, "Traitor");
 			can = false;
 			keydown(dom, { ...key(dom.field, "Enter"), ctrlKey: true });
-			expect(handlers.onField).not.toHaveBeenCalled();
+			expect(handlers.onSave).not.toHaveBeenCalled();
 			expect(warn).toHaveBeenCalledTimes(1);
 		} finally {
 			globalThis.ui = was;

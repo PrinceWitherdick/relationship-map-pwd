@@ -5,7 +5,7 @@ import {
 	RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_SIZE_NONE, RELMAP_SUBTITLE_MAX, RELMAP_VERSION,
 	addEdgePatch, addNodePatch, dropEdgePatch, dropNodePatch, edgePatch, edgesBetween,
 	edgesTouching, emptyGraph, fanIndexes, isSafeId, nodePatch, normalizeGraph,
-	pruneDeadPatch, readSeat, relmapPath, seatArrivals, takenSpots,
+	pruneDeadPatch, readSeat, relmapPath, seatArrivals, takenSpots, withPersonChange,
 } from "../../module/relmap/relmap-store.js";
 import { RELMAP_CAPTION_PX, RELMAP_REACH_MAX, RELMAP_REACH_MIN, RELMAP_SUBTITLE_MAX_W, RELMAP_SUBTITLE_REACH_PX } from "../../module/utils/relmap-geometry.js";
 
@@ -614,5 +614,75 @@ describe("where along its line a caption was dragged to", () => {
 		});
 		expect(read.edges.moved.seat).toBe(0.8);
 		expect(read.edges.untouched.seat).toBe(RELMAP_SEAT_AUTO);
+	});
+});
+
+// THE PERSON BAR'S UNSAVED CHANGE, laid over the board for painting only.
+describe("withPersonChange", () => {
+	const board = () => ({
+		nodes: { a: { name: "A", subtitle: "Squire", side: "below", italic: true, chips: { dead: true } }, b: { name: "B", chips: {} } },
+		chips: { dead: { name: "Dead", icon: "fa-skull", ink: "crimson" }, noble: { name: "Noble", icon: "", ink: "ochre" } },
+	});
+
+	it("paints the label, side and italics as changed, tidied, and leaves the board it was given alone", () => {
+		const graph = board();
+		const out = withPersonChange(graph, "a", { fields: { subtitle: "  Iron   Knight ", side: "left", italic: false } });
+		expect(out.nodes.a).toMatchObject({ subtitle: "Iron Knight", side: "left", italic: false });
+		expect(graph.nodes.a.subtitle).toBe("Squire");
+		expect(out.nodes.b).toBe(graph.nodes.b);
+	});
+
+	it("puts chips on and off, defines one the board has never had, and paints changed chips", () => {
+		const out = withPersonChange(board(), "a", {
+			wear: [{ id: "c9", name: "Outcast", icon: "", ink: "rose" }, { id: "noble", name: "Noble", icon: "", ink: "ochre" }],
+			off: ["dead"],
+			defs: { noble: { name: "Lord", icon: "fa-crown", ink: "ochre" } },
+		});
+		expect(out.nodes.a.chips).toEqual({ c9: true, noble: true });
+		expect(out.chips.c9).toEqual({ name: "Outcast", icon: "", ink: "rose" });
+		expect(out.chips.noble).toEqual({ name: "Lord", icon: "fa-crown", ink: "ochre" });
+	});
+
+	it("takes a chip deleted off the board and off everybody wearing it", () => {
+		const graph = board();
+		graph.nodes.b.chips = { dead: true };
+		const out = withPersonChange(graph, "a", { drop: ["dead"] });
+		expect(out.chips.dead).toBeUndefined();
+		expect(out.nodes.a.chips).toEqual({});
+		expect(out.nodes.b.chips).toEqual({});
+		expect(graph.nodes.b.chips).toEqual({ dead: true });
+	});
+
+	// ⚠ THE BOARD PAINTS `chipLaid`, NOT `chips`: a chip taken off in the bar stayed on the board.
+	it("lays out again the chips the board paints, for the person and everybody wearing a chip changed", () => {
+		const graph = normalizeGraph({
+			nodes: { a: { name: "A", chips: { dead: true } }, b: { name: "B", chips: { dead: true } }, c: { name: "C" } },
+			chips: { dead: { name: "Dead", icon: "fa-skull", ink: "crimson" }, noble: { name: "Noble", ink: "ochre" } },
+		});
+		const laid = node => (node.chipLaid?.rows ?? []).flat().map(chip => chip.name);
+		expect(laid(graph.nodes.a)).toEqual(["Dead"]);
+
+		const off = withPersonChange(graph, "a", { off: ["dead"] });
+		expect(off.nodes.a.chipLaid).toBeUndefined();
+		expect(laid(off.nodes.b)).toEqual(["Dead"]);
+
+		const on = withPersonChange(graph, "c", { wear: [{ id: "noble", name: "Noble", icon: "", ink: "ochre" }] });
+		expect(laid(on.nodes.c)).toEqual(["Noble"]);
+
+		const renamed = withPersonChange(graph, "a", { defs: { dead: { name: "Fallen", icon: "fa-skull", ink: "crimson" } } });
+		expect(laid(renamed.nodes.a)).toEqual(["Fallen"]);
+		expect(laid(renamed.nodes.b)).toEqual(["Fallen"]);
+
+		const dropped = withPersonChange(graph, "c", { drop: ["dead"] });
+		expect(dropped.nodes.a.chipLaid).toBeUndefined();
+		expect(dropped.nodes.b.chipLaid).toBeUndefined();
+		// And the board read is left as it was: the stored chip comes back once the change is let go.
+		expect(laid(graph.nodes.a)).toEqual(["Dead"]);
+	});
+
+	it("is the board itself for nobody, or no change", () => {
+		const graph = board();
+		expect(withPersonChange(graph, "gone", { fields: { subtitle: "X" } })).toBe(graph);
+		expect(withPersonChange(graph, "a", null)).toBe(graph);
 	});
 });

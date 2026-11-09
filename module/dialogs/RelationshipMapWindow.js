@@ -43,7 +43,7 @@ import {
 	RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN,
 	addEdgePatch, addGroupPatch, chipPatch, chipsWorn, dropChipPatch, nodeChipsPatch,
 	dropEdgePatch, dropGroupPatch, dropNodePatch, edgePatch, fanIndexes,
-	groupMembersPatch, groupPatch, nodePatch, pruneDeadPatch, readSeat, seatArrivals, takenSpots,
+	groupMembersPatch, groupPatch, nodePatch, pruneDeadPatch, readSeat, seatArrivals, takenSpots, withPersonChange,
 } from "../relmap/relmap-store.js";
 import {
 	RELMAP_INK_ACROSS, RELMAP_INK_PRESETS, boardGrounds, inkPaint, legibleHex, luminance, normalizeHex,
@@ -51,7 +51,7 @@ import {
 }
 	from "../relmap/relmap-ink.js";
 import { rememberBoard } from "../relmap/relmap-last.js";
-import { penFor, rememberPen } from "../relmap/relmap-pen.js";
+import { labelItalicFor, penFor, rememberPen } from "../relmap/relmap-pen.js";
 import { getLastSize, rememberSize } from "../relmap/relmap-size.js";
 import {
 	RELMAP_WEIGHTS, RELMAP_WEIGHT_BASE, RELMAP_WEIGHT_MAX, RELMAP_WEIGHT_MIN, RELMAP_WEIGHT_SPLIT, RELMAP_WEIGHT_STEP,
@@ -74,7 +74,7 @@ import {
 	hasLegacyBoard, resolveMapBoard, seedMap, setMapPageHidden,
 } from "../relmap/relmap-doc.js";
 import { chooseRelationshipMap } from "../relmap/relmap-make.js";
-import { RelmapPersonBar } from "../utils/relmap-person-bar.js";
+import { DRAFT_CHIP_ID, RelmapPersonBar } from "../utils/relmap-person-bar.js";
 import { changedSavedFace, everyBoard, writeBoards } from "../relmap/relmap-faces.js";
 import { isPrimaryGM } from "../utils/primary-gm.js";
 import { pickPersonToAdd, pickPersonToLink } from "./RelationshipLinkDialog.js";
@@ -425,6 +425,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._groupBar = null;
 		// The bar a person's label raises. See utils/relmap-person-bar.js.
 		this._personBar = null;
+		// WHAT THAT BAR IS CHANGING AND HAS NOT SAVED, `{id, fields, wear, off, defs}`, painted over the
+		// stored map for this reader alone (`_withPersonDraft`), and the one SAVED and not yet back from
+		// the server, held on the board until it is so the board does not flash back. See `_savePerson`.
+		this._personDraft = null;
+		this._landingPerson = null;
+		this._personPaint = false;
 		this._litGroup = null;
 		this._pickedGroupParts = [];
 		// Its four resize corners, the size they were last drawn at, and one resize's worth of preview.
@@ -1015,9 +1021,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * spreader's obstacle list, the cast the partial walks) reads it, so they cannot come apart.
 	 */
 	_plan(graph = null) {
-		const whole = graph ?? this._withLanding(readGraph(this.boardDoc));
+		const stored = graph ?? this._withLanding(readGraph(this.boardDoc));
+		// A PERSON'S LABEL OR CHIPS BEING CHANGED IN THEIR BAR are drawn as changed, on every pass that
+		// paints or measures the board, so the outlines and the gaps agree with the words shown.
+		const whole = this._withPersonDraft(stored);
 		return {
 			graph: whole,
+			// The board without that change, for the bar to measure what it has changed against.
+			stored,
 			// THE SHEET GROWS WITH THE CAST, so a portrait's radius is not a constant: it is
 			// smaller, as a share of the board, on a board carrying more people.
 			board: boardMetrics(Object.keys(whole.nodes).length),
@@ -1129,7 +1140,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * are on, and a ternary per question is three chances for one of them to be looking at a
 	 * different one.
 	 */
-	_boardContext({ graph, board, scales = weightScales() }) {
+	_boardContext({ graph, stored = graph, board, scales = weightScales() }) {
 		const r = board.r;
 		const fans = fanIndexes(graph);
 		const canEdit = this.canEdit;
@@ -1280,6 +1291,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// AND IT SAVES A SECOND `readGraph` PER REPAINT, which normalizes the whole map's
 			// worth of nodes and edges into a fresh object; the repaint has already paid for one.
 			graph,
+			// And the same board without the person bar's unsaved change (`_plan`), for that bar.
+			stored,
 		};
 		for (const shape of shapes) {
 			const { id, edge, curve, anchor } = shape;
@@ -1431,6 +1444,11 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._tieBar = null;
 		this._groupBar = null;
 		this._personBar = null;
+		// The person bar's unsaved change went with the bar: the board this render drew it on is put back.
+		if (this._personDraft) {
+			this._personDraft = null;
+			this._paintPersonDraft();
+		}
 
 		// Adopted BEFORE the early return. Left until after it, a render that somehow produced no
 		// viewport would leave this pointing at the PREVIOUS render, and the next live update would
@@ -1553,17 +1571,19 @@ export class RelationshipMapWindow extends RelmapDialog {
 			canEdit: () => this.canEdit,
 		});
 
-		// AND THE LABEL UNDER A PERSON'S NAME: one field, written as one step per burst of typing.
+		// AND THE LABEL UNDER A PERSON'S NAME, its side, italics and chips: shown on the board as they are
+		// changed, and written as one step on Save.
 		this._personBar = new RelmapPersonBar(root, {
 			surface: () => this._surface,
 			personAt: id => this._personAt(id),
-			onField: (id, fields) => this._writeSubtitle(id, fields),
+			onPreview: (id, change) => this._previewPerson(id, change),
+			onSave: (id, change) => this._savePerson(id, change),
 			canEdit: () => this.canEdit,
-			// AND THEIR CHIPS: the menu's list, and the four writes the bar asks for.
+			// AND THEIR CHIPS: the menu's list, what a new chip is, and the question a Delete asks.
 			library: () => chipLibrary(readGraph(this.boardDoc), { doc: this.boardDoc }),
-			onWear: (id, chip) => this._wearChip(id, chip),
-			onTakeOff: (id, chipId) => this._takeOffChip(id, chipId),
-			onSaveChip: (id, chipId, def) => this._saveChip(id, chipId, def),
+			onNewChip: def => this._newChip(def),
+			// A new label starts in the italics the last one saved on this map had.
+			italicDefault: () => labelItalicFor(this.entry),
 			onDropChip: chipId => this._dropChip(chipId),
 			onNudged: (chose, used) => ui.notifications?.info?.(
 				format(inkMovedKey(chose, used, "RELMAP.chips"), { chose, used }),
@@ -4518,14 +4538,19 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 */
 	_personAt(id) {
 		const graph = this._drawn?.graph;
-		const node = graph?.nodes?.[id];
+		const painted = graph?.nodes?.[id];
 		const board = this._drawn?.board;
-		if (!node || !board?.height) return null;
+		if (!painted || !board?.height) return null;
+		// ⚠ THE PERSON AS STORED, NOT AS PAINTED: the paint carries the bar's own unsaved change
+		// (`_withPersonDraft`), and a bar that took that for the stored person would think nothing changed.
+		const stored = this._drawn?.stored ?? graph;
+		const node = stored?.nodes?.[id] ?? painted;
 		// WHERE THEY STAND NOW, an arrow-key nudge not yet written (or not yet back) included: read off
 		// the paint alone, Enter on a label just after a nudge opened the bar where they had been.
-		const spot = this._nodeAt(id, graph) ?? node;
+		const spot = this._nodeAt(id, graph) ?? painted;
 		// Under the name as the reader has it sized (`personReach`), which is where the label is drawn;
-		// for somebody whose words stand over or beside the face, just under the face itself.
+		// for somebody whose words stand over or beside the face, just under the face itself. By the
+		// STORED side, so the bar stays put while the reader tries the sides in it.
 		const below = (node.side ?? RELMAP_SIDE_DEFAULT) === RELMAP_SIDE_DEFAULT;
 		const drop = below ? personReach(this._drawn?.scales?.name).subTop : RELMAP_NODE_PX / 2 + 4;
 		return {
@@ -4537,60 +4562,39 @@ export class RelationshipMapWindow extends RelmapDialog {
 			label: format("RELMAP.subtitle.bar", { name: this._nameOf(graph, id) }),
 			// And the title over the bar: "Label for Lord Elroy".
 			title: format("RELMAP.subtitle.title", { name: this._nameOf(graph, id) }),
-			// The chips they wear, in the order the board draws them.
-			chips: chipsWorn(node, graph),
+			// The chips they wear as painted, the bar's change included, in the order the board draws them.
+			chips: chipsWorn(painted, graph),
+			// The chips this board has as stored: the ones the bar's Delete can reach.
+			boardChips: Object.keys(stored?.chips ?? {}),
 		};
 	}
 
 	// ── Chips ("Dead", "Noble") ─────────────────────────────────────
 	//
-	// Kept per board and shared between boards by id: see relmap/relmap-chips.js. Each press is its own
-	// step of the undo, never folded: putting a chip on and taking it straight off again are two changes.
-
-	/** Put a chip on somebody, copying its definition onto this board first if it has never had it. */
-	_wearChip(id, chip) {
-		const graph = readGraph(this.boardDoc);
-		return this._write(chipWearPatch(graph, id, chip), {
-			label: localize("RELMAP.history.editedChips"),
-			onto: { kind: "nodes", id }, graph,
-		});
-	}
-
-	/** Take one chip off somebody. The chip stays on the board for the next person. */
-	_takeOffChip(id, chipId) {
-		return this._write(nodeChipsPatch(id, [], [chipId]), {
-			label: localize("RELMAP.history.editedChips"),
-			onto: { kind: "nodes", id },
-		});
-	}
+	// Kept per board and shared between boards by id: see relmap/relmap-chips.js. Put on, taken off and
+	// changed in the person bar, shown at once and written with the label on its Save (`_savePerson`).
 
 	/**
-	 * The chip form's Save. A chip already here (`chipId`) is changed on this board, then on every
-	 * other board that has it. A new one is put on this person, unless a chip of that name already
-	 * exists anywhere, which is put on them instead: two "Noble"s would be one chip twice in the menu.
+	 * What a new chip named in the chip form is: the chip already called that anywhere, or a new one.
+	 * Two "Noble"s would be one chip twice in the menu.
 	 */
-	async _saveChip(id, chipId, def) {
-		if (chipId) {
-			const written = await this._write(chipPatch(chipId, def), {
-				label: localize("RELMAP.history.editedChip"),
-			});
-			if (written) await spreadChip(chipId, def, { doc: this.boardDoc });
-			return written;
-		}
+	_newChip(def) {
 		const named = def.name.toLocaleLowerCase();
 		const twin = chipLibrary(readGraph(this.boardDoc), { doc: this.boardDoc })
 			.find(chip => chip.name.toLocaleLowerCase() === named);
+		if (!twin) return { id: foundry.utils.randomID(), ...def };
 		// The reader chose a colour and an icon for a chip that turns out to exist already: say so,
 		// or the form closing on a different-looking chip reads as their choice being ignored.
-		if (twin && ((twin.ink ?? "") !== (def.ink ?? "") || (twin.icon ?? "") !== (def.icon ?? ""))) {
+		if ((twin.ink ?? "") !== (def.ink ?? "") || (twin.icon ?? "") !== (def.icon ?? "")) {
 			ui.notifications?.info?.(format("RELMAP.chips.usedTwin", { chip: twin.name }));
 		}
-		return this._wearChip(id, twin ?? { id: foundry.utils.randomID(), ...def });
+		return { id: twin.id, name: twin.name, icon: twin.icon, ink: twin.ink };
 	}
 
 	/**
-	 * Delete a chip: off everybody on this board (undoable) and off every other board that has it
-	 * (not). Asked first, saying how far it reaches. False when the reader thought better of it.
+	 * Ask whether to delete a chip, saying how far it reaches. Nothing is written: the person bar shows
+	 * it gone and `_savePerson` deletes it, off everybody on this board (undoable) and off every other
+	 * board that has it (not). False when the reader thought better of it.
 	 */
 	async _dropChip(chipId) {
 		const graph = readGraph(this.boardDoc);
@@ -4606,30 +4610,102 @@ export class RelationshipMapWindow extends RelmapDialog {
 			cancel: localize("RELMAP.chips.cancel"),
 			danger: elsewhere > 0,
 		});
-		if (!go) return false;
-		const written = await this._write(dropChipPatch(graph, chipId), {
-			label: localize("RELMAP.history.droppedChip"), graph,
-		});
-		if (written) await spreadChip(chipId, null, { doc: this.boardDoc });
-		return written;
+		return !!go;
 	}
 
 	/**
-	 * Write what the label bar holds.
-	 *
-	 * ⚠ ITS OWN COALESCE KEY, never `node:<id>`: that is the arrow keys' nudge of one person, and a
-	 * label typed and a nudge made within the fold window would come back as ONE undo step.
+	 * THE PERSON BAR'S CHANGE, SHOWN AND NOT WRITTEN: the board is repainted with it laid over the
+	 * stored map (`_withPersonDraft`), for this reader alone. Null puts the board back as stored.
 	 */
+	_previewPerson(id, change) {
+		if (!change && !this._personDraft) return;
+		this._personDraft = change && id ? { id, change } : null;
+		this._paintPersonDraft();
+	}
+
 	/**
-	 * The person bar's Save: the label, the side and the italics, only those that changed, as ONE write
-	 * and one step of the undo. Never folded into the step before it: each Save is a change the reader
-	 * chose to make.
+	 * One repaint per frame for the bar's change, however many keys were typed in it: through `sync`,
+	 * so a press held on the board still holds it back.
 	 */
-	_writeSubtitle(id, fields) {
-		return this._write(nodePatch(id, fields), {
-			label: localize("RELMAP.history.editedPerson"),
-			onto: { kind: "nodes", id },
+	_paintPersonDraft() {
+		if (this._personPaint) return;
+		this._personPaint = true;
+		const frame = globalThis.requestAnimationFrame ?? (fn => setTimeout(fn, 0));
+		frame(() => {
+			this._personPaint = false;
+			this.sync();
 		});
+	}
+
+	/** The board with the person bar's change on it: one saved and on its way first, then the open one. */
+	_withPersonDraft(graph) {
+		let out = graph;
+		for (const draft of [this._landingPerson, this._personDraft]) {
+			if (draft) out = withPersonChange(out, draft.id, draft.change);
+		}
+		return out;
+	}
+
+	/**
+	 * The person bar's Save: the label, the side, the italics and the chips, as ONE write and one step of
+	 * the undo. Never folded into the step before it: each Save is a change the reader chose to make.
+	 * A chip changed here is then changed on every other board that has it, which is not undone.
+	 *
+	 * ⚠ HELD ON THE BOARD UNTIL IT LANDS (`_landingPerson`): the bar lets its change go as it closes,
+	 * and the board would otherwise flash back to the old label until the server answered.
+	 */
+	async _savePerson(id, change) {
+		if (!change) return false;
+		const graph = readGraph(this.boardDoc);
+		const { fields = {}, wear = [], off = [], defs = {}, drop = [] } = change;
+		const patch = {};
+		if (Object.keys(fields).length) Object.assign(patch, nodePatch(id, fields) ?? {});
+		if (off.length) Object.assign(patch, nodeChipsPatch(id, [], off) ?? {});
+		// A chip deleted: its definition and everybody's leaf for it, on this board.
+		const dropped = new Set(drop.filter(chipId => graph.chips[chipId]));
+		for (const chipId of dropped) Object.assign(patch, dropChipPatch(graph, chipId) ?? {});
+		const worn = new Set();
+		for (const chip of wear) {
+			// The form's stand-in for a chip with no id yet is never stored: its Save gives it one.
+			if (!chip?.id || chip.id === DRAFT_CHIP_ID || dropped.has(chip.id)) continue;
+			worn.add(chip.id);
+			// Defined on this board as changed, where it has never had it.
+			Object.assign(patch, chipWearPatch(graph, id, { ...chip, ...(defs[chip.id] ?? {}) }) ?? {});
+		}
+		const spread = [];
+		for (const [chipId, def] of Object.entries(defs)) {
+			if (dropped.has(chipId)) continue;
+			if (graph.chips[chipId]) Object.assign(patch, chipPatch(chipId, def) ?? {});
+			else if (!worn.has(chipId)) continue;
+			spread.push([chipId, def]);
+		}
+		// And off every other board that has it, once this one is written.
+		for (const chipId of dropped) spread.push([chipId, null]);
+		if (!Object.keys(patch).length) return false;
+		const label = Object.keys(fields).length ? "editedPerson"
+			: dropped.size ? "droppedChip"
+				: wear.length || off.length ? "editedChips" : "editedChip";
+		const landing = { id, change };
+		this._landingPerson = landing;
+		let written = false;
+		try {
+			written = await this._write(patch, {
+				label: localize(`RELMAP.history.${label}`),
+				onto: { kind: "nodes", id }, graph,
+			});
+		} finally {
+			if (this._landingPerson === landing) {
+				this._landingPerson = null;
+				// Refused or failed, the board goes back to what is stored.
+				if (!written) this._paintPersonDraft();
+			}
+		}
+		if (!written) return false;
+		// THE ITALICS SAVED ARE WHAT THE NEXT NEW LABEL ON THIS MAP STARTS IN (`labelItalicFor`). Not
+		// awaited, as the line pen is not: it rides alongside the write the reader is looking at.
+		if ("italic" in fields) rememberPen(this.entry, { italic: fields.italic });
+		for (const [chipId, def] of spread) await spreadChip(chipId, def, { doc: this.boardDoc });
+		return written;
 	}
 
 	/** A person's label on the board as painted NOW, for the focus to go back to. Walked, not built. */
@@ -5907,6 +5983,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._tieBar = null;
 		this._groupBar = null;
 		this._personBar = null;
+		this._personDraft = null;
 		this._teardownDrag?.();
 		this._teardownDrag = null;
 		// The two document-level listeners the undo keys need. A closed window that kept them would

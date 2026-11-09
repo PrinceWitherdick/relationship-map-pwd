@@ -9,18 +9,23 @@
 // IT SITS WHERE THE LABEL DOES, under the name. The reader clicked the words (or the "Add a label"
 // ghost) to get here, so that is where the field turns up, with the face and the name left showing.
 //
-// THE LABEL, WHERE THE WORDS GO AND THE ITALICS ARE KEPT ON SAVE, AND NOT BEFORE. The box is three lines
-// tall and Enter starts a new line in it (up to `RELMAP_SUBTITLE_LINES`); the side (below, above, left,
-// right) moves the name, label and chips round the face together; Italic is on unless turned off. Save,
-// or Ctrl+Enter, writes whichever of the three changed as ONE write and one step of the undo, and puts
-// the bar away. Escape, or a click away, keeps none of it. After Dom Bosco's tags pull request
-// (domfortunato), which brought the lines, the side and the Save button.
+// EVERYTHING ON THE BAR SHOWS ON THE BOARD AT ONCE AND IS KEPT ON SAVE, AND NOT BEFORE: the label, the
+// side, the italics, chips put on or taken off, and a chip made or changed in the chip form (as it is
+// chosen, before the form's own Save). The bar hands the window its CHANGE (`onPreview`) on every edit,
+// and the window paints the board with it laid over the stored map, for this reader alone. Save, or
+// Ctrl+Enter, writes the whole change as ONE write and one step of the undo (`onSave`), and puts the bar
+// away. Escape, the x, or a click away keeps none of it, and the board goes back to what is stored.
 //
-// CHIPS ARE WRITTEN AT ONCE, unlike the label: each is one press (put on, take off) and one step of the
-// undo. Add chip drops a menu of every chip on every board (utils/suggestion-menu.js: suggestions are a
-// menu off the Add button, never a row of chips), led by "New chip". The chip FORM makes a new chip or
-// changes one, and writes only on Save: a chip is shared by every board, so a half-chosen colour must
-// not be broadcast as the reader tries them.
+// The box is three lines tall and Enter starts a new line in it (up to `RELMAP_SUBTITLE_LINES`); the
+// side (below, above, left, right) moves the name, label and chips round the face together; Italic is
+// on unless turned off. After Dom Bosco's tags pull request (domfortunato), which brought the lines, the
+// side and the Save button.
+//
+// Add chip drops a menu of every chip on every board (utils/suggestion-menu.js: suggestions are a menu
+// off the Add button, never a row of chips), led by "New chip". The chip FORM makes a new chip or
+// changes one; its Save keeps that in the bar's change, and Cancel or Escape lets the form's edits go.
+// Deleting a chip is asked first, then shown at once (gone from everybody on this board) and done on Save,
+// on this board and every other one that has it.
 
 import { RelmapBoardBar, markChosen } from "./relmap-board-bar.js";
 import { TIE_BAR_EDGE_PX } from "./relmap-tie-bar.js";
@@ -44,8 +49,21 @@ const markRadio = (buttons, value) => markChosen(buttons, value, { may: false, k
 /** A pattern from the markup with its `{chip}` filled in. */
 const said = (pattern, chip) => String(pattern ?? "").replaceAll("{chip}", chip ?? "");
 
+/** Whether two chip definitions look the same. */
+const sameChip = (a, b) => !!a && !!b && a.name === b.name && a.icon === b.icon && a.ink === b.ink;
+
 /** How many lines a label box holds now. */
 const linesIn = text => String(text ?? "").split("\n").length;
+
+/**
+ * The id a NEW chip goes by on the board while its form is open and it has no id of its own yet. Never
+ * stored: the form's Save swaps it for a real id, or for the chip already called that.
+ */
+export const DRAFT_CHIP_ID = "relmap-draft-chip";
+
+/** How long typing must pause before the board shows it, and the longest it is ever left unshown. */
+export const PREVIEW_PAUSE_MS = 150;
+export const PREVIEW_MAX_MS = 400;
 
 export class RelmapPersonBar extends RelmapBoardBar {
 	/**
@@ -55,37 +73,43 @@ export class RelmapPersonBar extends RelmapBoardBar {
 	 * @param {Function} handlers.personAt  `id => {node, at}|null`: the person as painted now, and the
 	 *        point on the board (percentages) the bar's top edge is centred on. Null when they are gone,
 	 *        which closes the bar.
-	 * @param {Function} handlers.onField  `(id, fields) => Promise`: write the label.
+	 * @param {Function} handlers.onSave  `(id, change) => Promise`: write the bar's change as one step.
+	 *        `change` is `{fields, wear, off, defs, drop}`: the label, side and italics that changed; chips
+	 *        put on (`{id, name, icon, ink}`) and the ids taken off; chips changed, `{chipId: def}`; and
+	 *        the ids of chips deleted from the board.
+	 * @param {Function} [handlers.onPreview]  `(id, change|null) => void`: show this change on the board
+	 *        without writing it, or nothing (null) to show the board as stored.
 	 * @param {Function} [handlers.onPicked]  `id => void`: mark whose label this bar is holding.
 	 * @param {Function} handlers.canEdit  `() => boolean`.
 	 * @param {Function} [handlers.library]  `id => chip[]`: every chip that can be put on this person.
-	 * @param {Function} [handlers.onWear]  `(id, chip) => Promise`: put a chip on them.
-	 * @param {Function} [handlers.onTakeOff]  `(id, chipId) => Promise`: take one off.
-	 * @param {Function} [handlers.onSaveChip]  `(id, chipId|null, def) => Promise`: change a chip (an
-	 *        id) or make one and put it on this person (null).
-	 * @param {Function} [handlers.onDropChip]  `chipId => Promise<boolean>`: delete a chip; false when
-	 *        the reader thought better of it.
+	 * @param {Function} [handlers.onNewChip]  `def => chip`: the chip a new one named in the form is: the
+	 *        one already called that, or `def` under a new id.
+	 * @param {Function} [handlers.onDropChip]  `chipId => Promise<boolean>`: ask whether to delete a chip
+	 *        (on Save); false when the reader thought better of it. Writes nothing.
+	 * @param {Function} [handlers.italicDefault]  `() => boolean`: whether a NEW label starts in italics,
+	 *        as the last one saved on this map was.
 	 * @param {Function} [handlers.onNudged]  `(chose, used) => void`: a picked colour was deepened.
 	 * @param {Function} [handlers.onNeedName]  `() => void`: Save pressed with no name.
 	 */
 	constructor(root, {
-		surface, personAt, onField, onPicked, canEdit = () => true,
-		library, onWear, onTakeOff, onSaveChip, onDropChip, onNudged, onNeedName,
+		surface, personAt, onSave, onPreview, onPicked, canEdit = () => true,
+		library, onNewChip, onDropChip, onNudged, onNeedName, italicDefault,
 	} = {}) {
-		// NOTHING HELD BACK ON A TIMER: the label is written on Save (`_save`), never as it is typed.
+		// NOTHING HELD BACK ON A TIMER: the change is written on Save (`_save`), never as it is made.
 		super(root, {
 			bar: ".relmap-personbar",
 			press: "relmap-pbar",
 			writing: { field: "subtitle", key: "subtitle" },
-		}, { surface, onField, onPicked, canEdit });
+		}, { surface, onPicked, canEdit });
 		this._personAt = personAt ?? (() => null);
+		this._onSave = onSave ?? (() => {});
+		this._onPreview = onPreview ?? (() => {});
 		this._library = library ?? (() => []);
-		this._onWear = onWear ?? (() => {});
-		this._onTakeOff = onTakeOff ?? (() => {});
-		this._onSaveChip = onSaveChip ?? (() => {});
+		this._onNewChip = onNewChip ?? (() => null);
 		this._onDropChip = onDropChip ?? (() => false);
 		this._onNudged = onNudged ?? (() => {});
 		this._onNeedName = onNeedName ?? (() => {});
+		this._italicDefault = italicDefault ?? (() => true);
 		this.subtitle = this._field;
 		this.sides = [...(this.el?.querySelectorAll?.("[data-relmap-pbar='side']") ?? [])];
 		const group = `relmap-side-${++sideGroups}`;
@@ -103,6 +127,12 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this._italic = true;
 		this._savedSide = RELMAP_SIDE_DEFAULT;
 		this._savedItalic = true;
+		/**
+		 * FOR SOMEBODY WITH NO LABEL YET, the italics the box starts on: the map's last saved choice
+		 * (`italicDefault`), or null once the reader has ticked the box themselves or for a label already
+		 * there. Only a label that gets words is written with it: an empty one has no italics to keep.
+		 */
+		this._italicSeed = null;
 		this.worn = this.el?.querySelector?.(".relmap-personbar-worn") ?? null;
 		this.addChip = this.el?.querySelector?.("[data-relmap-pbar='chipadd']") ?? null;
 		this.form = this.el?.querySelector?.(".relmap-chipform") ?? null;
@@ -113,6 +143,20 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this.preview = this.el?.querySelector?.(".relmap-chipform-preview") ?? null;
 		/** The chip form's answers while it is open: which chip (null for a new one), its ink and icon. */
 		this._chip = null;
+		/** The person as stored, for which chips they already wear. */
+		this._node = null;
+		/** Chips put on in this bar (id -> chip), taken off (ids), and changed in the form (id -> def). */
+		this._wear = new Map();
+		this._off = new Set();
+		this._defs = new Map();
+		/** Chips deleted in this bar: gone from the board as shown, and deleted on Save. */
+		this._drop = new Set();
+		/** The ids of the chips this board already has, which are the ones Delete can reach. */
+		this._boardChips = new Set();
+		/** Typing waiting to be shown (`_previewSoon`), and the change last shown, as said. */
+		this._previewTimer = 0;
+		this._previewSince = null;
+		this._shown = "null";
 		/** What the worn row was last painted from, so a repaint that changes nothing keeps the focus. */
 		this._wornSaid = "";
 		this._wire();
@@ -120,13 +164,18 @@ export class RelmapPersonBar extends RelmapBoardBar {
 
 	_wire() {
 		if (!this.el) return;
-		if (this.subtitle) this._on(this.subtitle, "change", ev => ev.stopPropagation());
+		if (this.subtitle) {
+			this._on(this.subtitle, "change", ev => ev.stopPropagation());
+			this._on(this.subtitle, "input", () => this._previewSoon());
+		}
 		this._wireMove();
 		// THE SIDES ARE RADIOS: the one checked is what Save will write. Stopped for Italic's reason below.
 		for (const radio of this.sides) {
 			this._on(radio, "change", ev => {
 				ev.stopPropagation();
-				if (radio.checked) this._side = readSide(radio.value);
+				if (!radio.checked) return;
+				this._side = readSide(radio.value);
+				this._preview();
 			});
 		}
 		// ITALIC IS A CHECKBOX: the box says what Save will write. Stopped, as the window has `change`
@@ -135,6 +184,8 @@ export class RelmapPersonBar extends RelmapBoardBar {
 			this._on(this.italicBox, "change", ev => {
 				ev.stopPropagation();
 				this._italic = !!this.italicBox.checked;
+				this._italicSeed = null;
+				this._preview();
 			});
 		}
 		this._on(this.el, "click", ev => {
@@ -143,17 +194,17 @@ export class RelmapPersonBar extends RelmapBoardBar {
 			this._press(button.dataset.relmapPbar, button.dataset.relmapPbarValue ?? "");
 		});
 		if (this.chipName) {
-			this._on(this.chipName, "input", () => this._paintPreview());
+			// The pill in the form follows every key; the board waits for a pause, as the label does.
+			this._on(this.chipName, "input", () => { this._paintPreview(); this._previewSoon(); });
 			this._on(this.chipName, "change", ev => ev.stopPropagation());
 		}
 		this._wirePicker(this.chipHex, hex => this._pickChipHex(hex));
 		super._wire();
 	}
 
-	/** One press on the bar's chip controls. */
+	/** One press on the bar's controls. */
 	_press(what, value) {
 		if (!this.id || !this._canEdit()) return;
-		const id = this.id;
 		switch (what) {
 			case "save": return this._save();
 			// The title's x: Escape's way out, keeping nothing.
@@ -163,11 +214,13 @@ export class RelmapPersonBar extends RelmapBoardBar {
 				return this.dismiss();
 			}
 			case "chipadd": return this._openMenu();
-			case "chipedit": return this._openForm(value);
+			// The new chip the open form is making is worn on the board already: its pill leads back to it.
+			case "chipedit": return value === DRAFT_CHIP_ID ? this.chipName?.focus?.() : this._openForm(value);
 			case "chipoff": {
 				// The focus goes to Add chip: the button pressed is about to be painted away.
 				this.addChip?.focus?.();
-				return this._onTakeOff(id, value);
+				if (value === DRAFT_CHIP_ID) return this._closeForm();
+				return this._takeOff(value);
 			}
 			case "chipink": {
 				this._showPicker(false);
@@ -178,7 +231,8 @@ export class RelmapPersonBar extends RelmapBoardBar {
 				if (!this._chip) return undefined;
 				this._chip.icon = value;
 				markRadio(this.el.querySelectorAll("[data-relmap-pbar='chipicon']"), value);
-				return this._paintPreview();
+				this._paintPreview();
+				return this._preview();
 			}
 			case "chipsave": return this._saveChip();
 			case "chipcancel": return this._closeForm({ refocus: true });
@@ -244,7 +298,11 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		if (!held) return false;
 		// The same person taken hold of again keeps what is being typed: it was never written.
 		const again = this.isOpen && this.id === id;
-		if (this.id && !again) this.flush();
+		// Somebody else taken hold of: the last one's change is let go, on the board too.
+		if (this.id && !again) {
+			this.flush();
+			this._unshow();
+		}
 		this.id = id;
 		// Opened on somebody else, it starts under them again.
 		if (!again) this._moved = null;
@@ -252,7 +310,11 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this._at = held.at ?? null;
 		this._lift = held.lift ?? null;
 		this._box = null;
-		if (!again) this._fill(held.node);
+		if (!again) {
+			this._clearChips();
+			this._fill(held.node);
+		}
+		this._holdStored(held);
 		if (held.label) this.el.setAttribute?.("aria-label", held.label);
 		this._paintTitle(held);
 		if (!again) this._closeForm();
@@ -302,6 +364,7 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		const held = this._personAt(this.id);
 		if (!held) { this.discard(); return; }
 		if (!this._dirty()) this._fill(held.node, { keepCaret: true });
+		this._holdStored(held);
 		if (held.label) this.el?.setAttribute?.("aria-label", held.label);
 		this._paintTitle(held);
 		this._paintWorn(held);
@@ -365,14 +428,26 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this._saved = words;
 		this._side = this._savedSide = readSide(node?.side);
 		this._italic = this._savedItalic = readItalic(node?.italic);
+		// NO LABEL YET: the box starts on the italics this map's last saved label chose.
+		this._italicSeed = subtitleOf(words) ? null : !!this._italicDefault();
+		if (this._italicSeed !== null) this._italic = this._italicSeed;
 		this._markSide();
 		this._markItalic();
+	}
+
+	/**
+	 * Whether the italics are a change to keep: unlike the document's, and not merely the starting
+	 * italics of a label still without words.
+	 */
+	_italicChanged(words) {
+		if (this._italic === this._savedItalic) return false;
+		return !(this._italicSeed === this._italic && !subtitleOf(words));
 	}
 
 	/** Whether the bar holds anything the document does not: words, a side or the italics. */
 	_dirty() {
 		const words = this.subtitle?.value ?? this._saved;
-		return words !== this._saved || this._side !== this._savedSide || this._italic !== this._savedItalic;
+		return words !== this._saved || this._side !== this._savedSide || this._italicChanged(words);
 	}
 
 	_markSide() {
@@ -388,9 +463,15 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		if (this.italicBox) this.italicBox.checked = this._italic;
 	}
 
+	/** The person as stored, and which chips the board has: what the bar's chip change is measured from. */
+	_holdStored(held) {
+		this._node = held?.node ?? null;
+		this._boardChips = new Set(held?.boardChips ?? []);
+	}
+
 	/**
-	 * SAVE: whichever of the label, the side and the italics changed, as one write and one step of the
-	 * undo, and the bar put away. Nothing changed, nothing is written, and the bar still goes.
+	 * SAVE: the bar's whole change (the label, the side, the italics and the chips), as one write and one
+	 * step of the undo, and the bar put away. Nothing changed, nothing is written, and the bar still goes.
 	 * @returns {Promise<*>|undefined}  the write, where there was one.
 	 */
 	_save() {
@@ -406,10 +487,10 @@ export class RelmapPersonBar extends RelmapBoardBar {
 	 * as nothing was made; an existing one whose name was rubbed out is asked about, and nothing is saved
 	 * until it has one, since saving the label and closing would lose the reader's edit to it.
 	 */
-	async _saveWithChip() {
+	_saveWithChip() {
 		const named = chipNameOf(this.chipName?.value ?? "");
 		if (named) {
-			await this._saveChip();
+			this._saveChip();
 		} else if (this._chip?.id) {
 			this._onNeedName();
 			this.chipName?.focus?.();
@@ -420,28 +501,83 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		return this._saveLabel();
 	}
 
-	/** The label, the side and the italics: whichever changed, in one write, and the bar put away. */
+	/** The whole change, in one write, and the bar put away. */
 	_saveLabel() {
 		if (!this.id) return undefined;
 		const id = this.id;
-		const fields = {};
-		const words = subtitleOf(this.subtitle?.value ?? "");
-		if (words !== subtitleOf(this._saved)) fields.subtitle = words;
-		if (this._side !== this._savedSide) fields.side = this._side;
-		if (this._italic !== this._savedItalic) fields.italic = this._italic;
-		if (!Object.keys(fields).length) { this.dismiss(); return undefined; }
+		const change = this._change();
+		if (!change) { this.dismiss(); return undefined; }
 		// ⚠ SAID, NOT DROPPED QUIETLY: edit rights taken away while the bar was up (the GM changing who
 		// owns the map) would otherwise lose the change with nothing on screen to say so.
 		if (!this._canEdit()) {
 			globalThis.ui?.notifications?.warn?.(localize("RELMAP.editLost"));
 			return undefined;
 		}
-		this._saved = this.subtitle ? this.subtitle.value : words;
+		if (this.subtitle) this._saved = this.subtitle.value;
 		this._savedSide = this._side;
 		this._savedItalic = this._italic;
-		const write = this._onField(id, fields);
+		const write = this._onSave(id, change);
 		this.dismiss();
 		return write;
+	}
+
+	/**
+	 * What this bar holds that the document does not, as `onSave` and `onPreview` take it, or null for
+	 * nothing. The chip form, while it is open, is in it as it stands: a new chip as worn under
+	 * `DRAFT_CHIP_ID`, a worn one as changed. A form with no name yet adds nothing.
+	 */
+	_change() {
+		const fields = {};
+		const words = subtitleOf(this.subtitle?.value ?? this._saved);
+		if (words !== subtitleOf(this._saved)) fields.subtitle = words;
+		if (this._side !== this._savedSide) fields.side = this._side;
+		if (this._italicChanged(words)) fields.italic = this._italic;
+		const wear = [...this._wear.values()];
+		const defs = Object.fromEntries(this._defs);
+		const form = this._formDef();
+		if (form && !this._chip.id) wear.push({ id: DRAFT_CHIP_ID, ...form });
+		else if (form && !sameChip(form, this._chip.was)) defs[this._chip.id] = form;
+		const off = [...this._off];
+		const drop = [...this._drop];
+		const empty = !Object.keys(fields).length && !wear.length && !off.length && !drop.length;
+		if (empty && !Object.keys(defs).length) return null;
+		return { fields, wear, off, defs, drop };
+	}
+
+	/**
+	 * Show the bar's change on the board, as it stands now. A press (a side, Italic, a chip) shows at
+	 * once; typing waits for a pause (`_previewSoon`), and anything waiting is shown with this.
+	 *
+	 * ⚠ THE SAME CHANGE IS NOT SHOWN TWICE. Every one repaints the whole board, and a key that changes
+	 * nothing once tidied (a second space, a trailing one) would be a repaint for nothing.
+	 */
+	_preview() {
+		this._stopPreviewTimer();
+		if (!this.id) return;
+		const change = this._change();
+		const said = JSON.stringify(change);
+		if (said === this._shown) return;
+		this._shown = said;
+		this._onPreview(this.id, change);
+	}
+
+	/**
+	 * TYPING IS SHOWN AFTER A PAUSE, and never left waiting longer than `PREVIEW_MAX_MS`: the board is
+	 * repainted whole for each showing, so a word typed is one repaint rather than one per key, and a
+	 * long sentence typed without stopping still keeps up a few times a second.
+	 */
+	_previewSoon() {
+		const now = Date.now();
+		this._previewSince ??= now;
+		clearTimeout(this._previewTimer);
+		const wait = Math.max(0, Math.min(PREVIEW_PAUSE_MS, this._previewSince + PREVIEW_MAX_MS - now));
+		this._previewTimer = setTimeout(() => this._preview(), wait);
+	}
+
+	_stopPreviewTimer() {
+		clearTimeout(this._previewTimer);
+		this._previewTimer = 0;
+		this._previewSince = null;
 	}
 
 	/**
@@ -460,7 +596,50 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this._markItalic();
 	}
 
+	/**
+	 * LETTING GO KEEPS NOTHING ON THE BOARD: the chips' change goes with the bar, and the board is shown
+	 * as stored again. After a Save the window holds the change on the board until the write lands.
+	 */
+	_letGo() {
+		this._clearChips();
+		this._unshow();
+	}
+
+	/** The board shown as stored again, with nothing left waiting to be shown. */
+	_unshow() {
+		this._stopPreviewTimer();
+		this._shown = "null";
+		if (this.id) this._onPreview(this.id, null);
+	}
+
+	_clearChips() {
+		this._wear.clear();
+		this._off.clear();
+		this._defs.clear();
+		this._drop.clear();
+	}
+
 	// ── Chips ───────────────────────────────────────────────────────────────
+
+	/** Whether the stored person wears this chip. */
+	_wornStored(chipId) {
+		return !!this._node?.chips?.[chipId];
+	}
+
+	/** Put a chip on, in the bar's change. One taken off in this bar goes back on. */
+	_putOn(chip) {
+		if (!chip?.id) return;
+		if (this._off.has(chip.id)) this._off.delete(chip.id);
+		else if (!this._wornStored(chip.id)) this._wear.set(chip.id, { ...chip });
+		this._preview();
+	}
+
+	/** Take a chip off, in the bar's change. One put on in this bar is simply let go. */
+	_takeOff(chipId) {
+		if (this._wear.has(chipId)) this._wear.delete(chipId);
+		else if (this._wornStored(chipId)) this._off.add(chipId);
+		this._preview();
+	}
 
 	/**
 	 * The chips this person wears, as pills to press (the chip's form) with an x beside each (take it
@@ -497,7 +676,8 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		if (!button) return;
 		const id = this.id;
 		const worn = new Set((this._personAt(id)?.chips ?? []).map(chip => chip.id));
-		const chips = this._library(id) ?? [];
+		// A chip deleted in this bar is not offered again until the bar is let go.
+		const chips = (this._library(id) ?? []).filter(chip => !this._drop.has(chip.id));
 		const grounds = this._grounds();
 		openSuggestionMenu(button, {
 			heading: button.dataset?.relmapSaidHeading ?? "",
@@ -518,7 +698,7 @@ export class RelmapPersonBar extends RelmapBoardBar {
 				if (this.id !== id) return;
 				if (value === null) { this._openForm(null); return; }
 				const chip = chips.find(one => one.id === value);
-				if (chip) this._onWear(id, chip);
+				if (chip) this._putOn({ id: chip.id, name: chip.name, icon: chip.icon, ink: chip.ink });
 			},
 		});
 	}
@@ -543,9 +723,12 @@ export class RelmapPersonBar extends RelmapBoardBar {
 			ink: chip?.ink ?? RELMAP_INK_DEFAULT,
 			icon: chip?.icon ?? "",
 			hexAsked: !!normalizeHex(chip?.ink),
+			// The chip as the form opened on it, so opening it and changing nothing changes nothing.
+			was: chip ? { name: chip.name, icon: chip.icon ?? "", ink: chip.ink ?? RELMAP_INK_DEFAULT } : null,
 		};
 		if (this.chipName) this.chipName.value = chip?.name ?? "";
-		if (this.chipDrop) this.chipDrop.hidden = !chip;
+		// Only a chip this board has can be deleted: one put on in this bar is not on it until Save.
+		if (this.chipDrop) this.chipDrop.hidden = !chip || !this._boardChips.has(chip.id);
 		markRadio(this.el.querySelectorAll("[data-relmap-pbar='chipicon']"), this._chip.icon);
 		this._markChipInk(this._chip.ink);
 		this.form.hidden = false;
@@ -553,10 +736,15 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this._paintPreview();
 		this.place();
 		this.chipName?.focus?.();
+		this._preview();
 	}
 
-	/** Put the form away, keeping nothing. `refocus` hands the focus back to Add chip. */
+	/**
+	 * Put the form away, keeping nothing of it its Save did not keep, and the board shows that.
+	 * `refocus` hands the focus back to Add chip.
+	 */
 	_closeForm({ refocus = false } = {}) {
+		const had = !!this._chip;
 		if (this._chip && refocus) this.addChip?.focus?.();
 		this._chip = null;
 		if (this.form && !this.form.hidden) {
@@ -565,6 +753,14 @@ export class RelmapPersonBar extends RelmapBoardBar {
 			this._box = null;
 			this.place();
 		}
+		if (had) this._preview();
+	}
+
+	/** The chip as the open form has it, or null with no form or no name. */
+	_formDef() {
+		if (!this._chip) return null;
+		const name = chipNameOf(this.chipName?.value ?? "");
+		return name ? { name, icon: this._chip.icon, ink: this._chip.ink } : null;
 	}
 
 	/** One of the eight, or a hex of the reader's own: the form's answer, painted on its presses. */
@@ -573,6 +769,7 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this._chip.ink = ink;
 		this._markChipInk(ink);
 		this._paintPreview();
+		this._preview();
 	}
 
 	_markChipInk(ink) {
@@ -613,21 +810,35 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this.preview.innerHTML = chipPillHtml(chipPaint({ name, icon: this._chip.icon, ink: this._chip.ink }, { grounds: this._grounds() }));
 	}
 
-	async _saveChip() {
+	/**
+	 * The form's Save: the chip kept in the bar's change and the form put away, to be written with the
+	 * rest on the bar's own Save. A new chip is the one already called that, where there is one.
+	 */
+	_saveChip() {
 		if (!this._chip || !this.id || !this._canEdit()) return;
-		const name = chipNameOf(this.chipName?.value ?? "");
-		if (!name) { this._onNeedName(); this.chipName?.focus?.(); return; }
-		const { id: chipId, icon, ink } = this._chip;
-		const personId = this.id;
+		const def = this._formDef();
+		if (!def) { this._onNeedName(); this.chipName?.focus?.(); return; }
+		const chipId = this._chip.id;
+		if (!chipId) {
+			const chip = this._onNewChip(def);
+			if (chip?.id) this._putOn({ id: chip.id, name: chip.name, icon: chip.icon, ink: chip.ink });
+		} else if (!sameChip(def, this._chip.was)) this._defs.set(chipId, def);
 		this._closeForm({ refocus: true });
-		await this._onSaveChip(personId, chipId, { name, icon, ink });
 	}
 
+	/** Delete: asked, then gone from the board as shown, and deleted on every board on Save. */
 	async _dropChip() {
 		const chipId = this._chip?.id;
 		if (!chipId) return;
 		const gone = await this._onDropChip(chipId);
-		if (gone) this._closeForm({ refocus: true });
+		// Let go, or moved on to somebody else, while the question was up: nothing to delete here.
+		if (!gone || !this.isOpen || this._chip?.id !== chipId) return;
+		this._wear.delete(chipId);
+		this._off.delete(chipId);
+		this._defs.delete(chipId);
+		this._drop.add(chipId);
+		this._closeForm({ refocus: true });
+		this._preview();
 	}
 
 	close() {
@@ -640,6 +851,7 @@ export class RelmapPersonBar extends RelmapBoardBar {
 
 	destroy() {
 		this._closeMenu();
+		this._stopPreviewTimer();
 		super.destroy();
 		this.subtitle = null;
 		this.sides = [];

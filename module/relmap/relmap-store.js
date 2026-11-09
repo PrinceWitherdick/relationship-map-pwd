@@ -428,6 +428,71 @@ export function chipsWorn(node, graph) {
 		.sort(compareChips);
 }
 
+/**
+ * A normalized board with one person's UNSAVED change laid over it, for painting only: their label,
+ * side and italics, chips put on (defined on the board where it has never had them) and taken off,
+ * chips changed, and chips deleted (off everybody). A copy; `graph` is the caller's. The person gone,
+ * or no change, is `graph` itself.
+ *
+ * @param {object} graph
+ * @param {string} id
+ * @param {{fields?: object, wear?: object[], off?: string[], defs?: object, drop?: string[]}|null} change
+ *        as the person bar hands it over (utils/relmap-person-bar.js `_change`).
+ */
+export function withPersonChange(graph, id, change) {
+	const node = graph?.nodes?.[id];
+	if (!node || !change) return graph;
+	const { fields = {}, wear = [], off = [], defs = {}, drop = [] } = change;
+	const chips = { ...(graph.chips ?? {}) };
+	const worn = { ...(node.chips ?? {}) };
+	// A CHIP DELETED comes off everybody on the board, not only this person.
+	let nodes = graph.nodes;
+	if (drop.length) {
+		nodes = { ...nodes };
+		for (const chipId of drop) {
+			delete chips[chipId];
+			delete worn[chipId];
+			for (const [other, person] of Object.entries(nodes)) {
+				if (other !== id && person?.chips?.[chipId]) {
+					const rest = { ...person.chips };
+					delete rest[chipId];
+					nodes[other] = { ...person, chips: rest };
+				}
+			}
+		}
+	}
+	for (const chipId of off) delete worn[chipId];
+	for (const { id: chipId, name, icon = "", ink = RELMAP_INK_DEFAULT } of wear) {
+		if (!chipId || !chipNameOf(name)) continue;
+		worn[chipId] = true;
+		chips[chipId] ??= { name: chipNameOf(name), icon, ink };
+	}
+	for (const [chipId, def] of Object.entries(defs)) {
+		if (chips[chipId] && chipNameOf(def?.name)) chips[chipId] = { ...chips[chipId], ...def, name: chipNameOf(def.name) };
+	}
+	const next = { ...node, chips: worn };
+	if ("subtitle" in fields) next.subtitle = subtitleOf(fields.subtitle);
+	if ("side" in fields) next.side = readSide(fields.side);
+	if ("italic" in fields) next.italic = readItalic(fields.italic);
+	const out = { ...graph, chips, nodes: { ...nodes, [id]: next } };
+	// ⚠ AND THE CHIPS LAID OUT AGAIN (`chipLaid`), which is what the board actually paints: the read
+	// worked it out from the stored chips, so a chip put on, taken off, changed or deleted here showed
+	// in the bar and not on the board. This person, and everybody wearing a chip changed or deleted.
+	const touched = new Set([...Object.keys(defs), ...drop]);
+	const wearsTouched = other => Object.keys(graph.nodes[other]?.chips ?? {}).some(chipId => touched.has(chipId));
+	for (const [other, person] of Object.entries(out.nodes)) {
+		if (other === id || wearsTouched(other)) out.nodes[other] = withChipsLaid(person, out);
+	}
+	return out;
+}
+
+/** A person with `chipLaid` worked out afresh against `graph`, as `normalizeGraph` does. A copy. */
+function withChipsLaid(node, graph) {
+	const { chipLaid: _old, ...rest } = node;
+	const laid = chipLayout(chipsWorn(rest, graph));
+	return laid.rows.length ? { ...rest, chipLaid: laid } : rest;
+}
+
 /** The order chips are listed in: presets first, then by name, then by id so it is total. */
 export function compareChips(a, b) {
 	const rank = chip => {
