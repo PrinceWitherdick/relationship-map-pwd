@@ -9,7 +9,7 @@
 // EMPTY LISTS ARE NOT OFFERED. A rail with "Vehicles (0)" on it is a tab that can only disappoint.
 
 import { byName, partyCharacters } from "./party.js";
-import { format, listOf, localize } from "./i18n.js";
+import { format, localize } from "./i18n.js";
 
 export const PEOPLE_GROUP_PLAYERS = "players";
 export const PEOPLE_GROUP_OTHERS = "others";
@@ -45,7 +45,7 @@ export function personNote(actor) {
 		|| (actor.hasPlayerOwner && actor.testUserPermission?.(user, "OWNER"))
 	));
 	if (players.length) {
-		return format("RELMAP.people.playedBy", { names: listOf(players.map(user => user.name)) });
+		return format("RELMAP.people.playedBy", { names: players.map(user => user.name).join(", ") });
 	}
 	return actor.folder?.name ?? "";
 }

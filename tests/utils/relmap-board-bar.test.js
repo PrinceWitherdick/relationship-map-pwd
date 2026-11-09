@@ -142,6 +142,31 @@ describe("the field, held back before it is written", () => {
 		expect(bar.isWriting()).toBe(false);
 	});
 
+	// REVIEW 2026-11-08: every later flush (blur, board switch, Undo, close) said it again.
+	it("says once, not on every later flush, that words typed after edit rights went were not kept", () => {
+		const { dom, bar, handlers } = setUp();
+		let may = true;
+		bar._canEdit = () => may;
+		const warn = vi.fn();
+		const was = globalThis.ui;
+		globalThis.ui = { notifications: { warn } };
+		try {
+			bar.open("a");
+			dom.name.value = "New";
+			may = false;
+			bar.flush();
+			bar.flush();
+			bar.flush();
+			expect(warn).toHaveBeenCalledTimes(1);
+			dom.name.value = "Newer";
+			bar.flush();
+			expect(warn).toHaveBeenCalledTimes(2);
+			expect(handlers.onField).not.toHaveBeenCalled();
+		} finally {
+			globalThis.ui = was;
+		}
+	});
+
 	it("writes nothing the document already has", () => {
 		const { bar, handlers } = setUp();
 		bar.open("a");

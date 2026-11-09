@@ -30,6 +30,7 @@
 //    phase and never looks at `defaultPrevented`.
 
 import { boardGrounds, deepenInk, normalizeHex } from "../relmap/relmap-ink.js";
+import { localize } from "./i18n.js";
 
 /** The four keys that walk a row of presses, and which way along it each one goes. */
 const ROVE_ARROWS = Object.freeze({ ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 });
@@ -105,6 +106,8 @@ export class RelmapBoardBar {
 	} = {}) {
 		this.root = root ?? null;
 		this._surface = surface ?? (() => null);
+		// ⚠ A WRITE STARTED HERE IS THE WINDOW'S TO KEEP TRACK OF, not the bar's: every one goes through
+		// the window's own write (RelationshipMapWindow `_write`), which an undo waits on.
 		this._onField = onField ?? (() => {});
 		this._onPicked = onPicked ?? (() => {});
 		this._canEdit = canEdit;
@@ -198,18 +201,25 @@ export class RelmapBoardBar {
 	 */
 	_wire() {
 		this._on(this.el, "keydown", ev => this._key(ev));
-		if (this.inkHex) {
-			// ⚠ THE ELEMENT'S OWN `change`, NOT ITS TWO INPUTS'. `HTMLColorPickerElement` stops the
-			// events its hex field and its swatch fire and dispatches one of its own from the value
-			// setter, which is the only one that has been through its own normalising.
-			this._on(this.inkHex, "change", ev => {
-				// Painting is not choosing: see `_paintPicker`. Stopped as well as ignored, because
-				// this event bubbles and the window has its own `change` handlers on the bar above.
-				ev.stopPropagation();
-				if (this._paintingInk) return;
-				this._pickCustomInk(this.inkHex.value ?? "");
-			});
-		}
+		this._wirePicker(this.inkHex, hex => this._pickCustomInk(hex));
+	}
+
+	/**
+	 * Hear the reader choose in a colour picker: `take(value)` on each choice.
+	 *
+	 * ⚠ THE ELEMENT'S OWN `change`, NOT ITS TWO INPUTS'. `HTMLColorPickerElement` stops the events its
+	 * hex field and its swatch fire and dispatches one of its own from the value setter, which is the
+	 * only one that has been through its own normalising.
+	 */
+	_wirePicker(picker, take) {
+		if (!picker) return;
+		this._on(picker, "change", ev => {
+			// Painting is not choosing: see `_paintPicker`. Stopped as well as ignored, because this
+			// event bubbles and the window has its own `change` handlers on the bar above.
+			ev.stopPropagation();
+			if (this._paintingInk) return;
+			take(picker.value ?? "");
+		});
 	}
 
 	/** One key pressed somewhere on the bar. Every bar answers this for itself. */
@@ -411,9 +421,20 @@ export class RelmapBoardBar {
 	_flushWriting() {
 		if (!this._writing) return undefined;
 		this._disarm(this._writing.field);
-		if (!this.id || !this._field || !this._canEdit()) return undefined;
+		if (!this.id || !this._field) return undefined;
 		const said = this._field.value ?? "";
 		if (said === this._saved) return undefined;
+		// ⚠ SAID, NOT DROPPED QUIETLY. Edit rights taken away mid-sentence (the GM changing who owns the
+		// map) used to throw the words away with nothing on screen to say so.
+		// Once per lot of words, though: every later flush (the next blur, a board switch, Undo,
+		// closing) would otherwise say it again about the same words.
+		if (!this._canEdit()) {
+			if (this._lostSaid !== said) {
+				this._lostSaid = said;
+				globalThis.ui?.notifications?.warn?.(localize("RELMAP.editLost"));
+			}
+			return undefined;
+		}
 		this._saved = said;
 		return this._onField(this.id, { [this._writing.key]: said });
 	}
@@ -439,10 +460,10 @@ export class RelmapBoardBar {
 	/**
 	 * Set what the colour picker (`inkHex`) is holding. ⚠ WRITTEN BEHIND THE FLAG: assigning to its
 	 * `value` makes it dispatch `change`, which is indistinguishable from the reader having chosen,
-	 * so each bar's `change` handler ignores it while `_paintingInk` is up.
+	 * so each bar's `change` handler ignores it while `_paintingInk` is up. `picker` is for a bar with a
+	 * second one (the person bar's chip form).
 	 */
-	_paintPicker(hex) {
-		const picker = this.inkHex;
+	_paintPicker(hex, picker = this.inkHex) {
 		if (!picker || !hex || picker.value === hex) return;
 		this._paintingInk = true;
 		try { picker.value = hex; } finally { this._paintingInk = false; }
@@ -471,17 +492,40 @@ export class RelmapBoardBar {
 	 */
 	_pickCustomInk(said) {
 		if (!this.id || !this._canEdit()) return;
-		const chose = normalizeHex(said);
-		// A half-typed hex in the picker's text field is not a colour yet. Ignored rather than
-		// refused out loud: the reader is still typing it.
-		if (!chose) return;
-		const { hex, nudged, ratio } = deepenInk(chose, { grounds: this._grounds() });
+		const hex = this._readablePick(said);
 		if (!hex) return;
-		if (nudged) this._onNudged(chose, hex, ratio);
 		this._hexAsked = true;
 		this._inkPending = hex;
 		this._markInk(hex);
 		this._defer("ink");
+	}
+
+	/**
+	 * A hex the reader picked, made one that can be followed on this board, or "" for none yet. The
+	 * reader is told (`onNudged`) when it had to be deepened: see `_pickCustomInk`.
+	 */
+	_readablePick(said) {
+		const chose = normalizeHex(said);
+		// A half-typed hex in the picker's text field is not a colour yet. Ignored rather than
+		// refused out loud: the reader is still typing it.
+		if (!chose) return "";
+		const { hex, nudged, ratio } = deepenInk(chose, { grounds: this._grounds() });
+		if (hex && nudged) this._onNudged?.(chose, hex, ratio);
+		return hex || "";
+	}
+
+	/**
+	 * Show or put away a colour picker beside its `+` (`more`), and seed it. ⚠ THE BAR'S WIDTH CHANGES
+	 * WITH IT, and `place` measures the bar once per opening, so the measurement is thrown away.
+	 */
+	_togglePicker(picker, more, open, hex = "") {
+		if (!picker) return;
+		if (picker.hidden === open) {
+			picker.hidden = !open;
+			more?.setAttribute?.("aria-expanded", open ? "true" : "false");
+			this._box = null;
+		}
+		if (open) this._paintPicker(hex, picker);
 	}
 
 	/**

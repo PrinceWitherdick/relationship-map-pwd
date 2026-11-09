@@ -74,58 +74,59 @@ describe("the part of the board with anything on it", () => {
 		expect(box.top).toBe(0);
 	});
 
+	it("frames the label under somebody's name too", () => {
+		const plain = boardBounds([{ x: 50, y: 150 }], sheet);
+		const labelled = boardBounds([{ x: 50, y: 150, subtitle: "Iron Knight" }], sheet);
+		expect(labelled.bottom).toBeGreaterThan(plain.bottom);
+	});
+
 	it("skips a person with no place at all rather than framing nowhere", () => {
 		expect(boardBounds([{ x: NaN, y: 3 }], sheet)).toEqual({ left: 0, top: 0, right: 1200, bottom: 960 });
 	});
 
-	// The tags under a name hang a 16px line each below it, and a frame that stopped at the name
-	// would open with somebody's "deceased" cut off at the bottom of the window.
-	it("reaches further down for the tags under a name, and only there", () => {
-		const plain = boardBounds([{ x: 50, y: 150 }], sheet);
-		const tagged = boardBounds([{ x: 50, y: 150, tags: ["deceased", "the Elder", "of the Ford"] }], sheet);
-		expect(tagged.bottom - plain.bottom).toBe(48);
-		expect(tagged.left).toBe(plain.left);
-		expect(tagged.right).toBe(plain.right);
-		expect(tagged.top).toBe(plain.top);
-		expect(boardBounds([{ x: 50, y: 150, tags: "deceased" }], sheet).bottom).toBe(plain.bottom);
-	});
+	// AUDIT 2026-11-03 (O8): a fan of ten lines between one pair bows about a quarter of the sheet off
+	// the straight run, and a frame worked out from the faces alone cut the outer ones off.
+	describe("and the lines on it", () => {
+		const nodes = [{ x: 40, y: 2 }, { x: 60, y: 2 }];
+		// A line along the top edge bowed up: its control is 40% above the sheet, so the stroke's own
+		// highest point is half that, 20% of 960 = 192px above it.
+		const bowed = { curve: { from: { left: 40, top: 2 }, control: { left: 50, top: -38 }, to: { left: 60, top: 2 } } };
 
-	// A tag wider than the name reaches sideways too (the estimate: 6.3px a letter at 12px, plus the pad, halved,
-	// less the name's half). Off the sheet on each side, because a person ON it stands well inside the frame
-	// already and moves nothing whatever they wear.
-	it("reaches sideways for a tag wider than the name, on whichever side the person stands off the sheet", () => {
-		const tag = "Ruler of the Thorny Tower";
-		const leftPlain = boardBounds([{ x: -20, y: 50 }], sheet);
-		const leftWide = boardBounds([{ x: -20, y: 50, tags: [tag] }], sheet);
-		expect(leftPlain.left - leftWide.left).toBeCloseTo(28.35);
-		expect(leftWide.right).toBe(leftPlain.right);
-		const rightPlain = boardBounds([{ x: 120, y: 50 }], sheet);
-		const rightWide = boardBounds([{ x: 120, y: 50, tags: [tag] }], sheet);
-		expect(rightWide.right - rightPlain.right).toBeCloseTo(28.35);
-		expect(rightWide.left).toBe(rightPlain.left);
-		expect(boardBounds([{ x: -20, y: 50, tags: ["x".repeat(10)] }], sheet)).toEqual(leftPlain);
-	});
+		it("frames exactly what it always did when given no lines", () => {
+			expect(boardBounds(nodes, sheet, [], [])).toEqual(boardBounds(nodes, sheet));
+			expect(boardBounds(nodes, sheet, [], undefined)).toEqual(boardBounds(nodes, sheet));
+		});
 
-	// WHERE THE PLATE STANDS: a frame that stopped at the face would open with a name above somebody's head, or a
-	// long tag beside them, cut off at the window's edge. Off the sheet, as above, because on it the sheet's own edge
-	// is the frame whatever they wear; and below the sheet, because a plate beside the face hangs nothing under it.
-	it("reaches past a plate above or beside the face, and no further down than the face", () => {
-		const abovePlain = boardBounds([{ x: 50, y: -20 }], sheet);
-		const above = boardBounds([{ x: 50, y: -20, name: "Sela", tags: ["deceased", "the Elder"], side: "above" }], sheet);
-		// 36 + 14 + 18 + 32 = 100 up and the 24 margin, against the plain 36 + 24.
-		expect(abovePlain.top - above.top).toBeCloseTo(64);
-		expect(above.bottom).toBe(abovePlain.bottom);
-		const rightPlain = boardBounds([{ x: 120, y: 50 }], sheet);
-		const right = boardBounds([{ x: 120, y: 50, name: "A", tags: ["Ruler of the Thorny Tower"], side: "right" }], sheet);
-		// 36 + 14 + 164.7 and the 36 margin, against the name's 54 + 36: 1690.7 against 1530.
-		expect(rightPlain.right).toBe(1530);
-		expect(right.right - rightPlain.right).toBeCloseTo(160.7);
-		expect(right.left).toBe(rightPlain.left);
-		const belowPlain = boardBounds([{ x: 50, y: 120 }], sheet);
-		const beside = boardBounds([{ x: 50, y: 120, name: "Sela", side: "right" }], sheet);
-		// 36 + 34 under the centre against the name's 56 + 34: 1222 against 1242.
-		expect(belowPlain.bottom).toBe(1152 + 90);
-		expect(belowPlain.bottom - beside.bottom).toBeCloseTo(20);
+		it("takes in the outermost bow at the stroke's true extreme, not at its control point", () => {
+			const box = boardBounds(nodes, sheet, [], [bowed]);
+			const peak = ((2 - 0.5 * 40) / 100) * 960; // the curve's top at t = 0.5
+			expect(box.top).toBeLessThan(peak);
+			// Never framed out as far as the control point, which is twice the bow.
+			expect(box.top).toBeGreaterThan((-38 / 100) * 960);
+			expect(box.left).toBe(0);
+			expect(box.right).toBe(1200);
+		});
+
+		it("takes in a caption, turned, round its anchor", () => {
+			// 50% of the sheet wide in flat units (600px), on a line far below the sheet.
+			const line = {
+				curve: { from: { left: 45, top: 150 }, control: { left: 50, top: 150 }, to: { left: 55, top: 150 } },
+				anchor: { left: 50, top: 150, angle: 90 },
+				size: { w: 50, h: 2 },
+			};
+			const box = boardBounds([], sheet, [], [line]);
+			// Turned upright, the 600px chip reaches 300px below its anchor at 1440px.
+			expect(box.bottom).toBeGreaterThan(1440 + 300);
+			// Lying flat, it reaches only half its own height down.
+			const flatBox = boardBounds([], sheet, [], [{ ...line, anchor: { ...line.anchor, angle: 0 } }]);
+			expect(flatBox.bottom).toBeLessThan(1440 + 300);
+		});
+
+		it("skips a line with no curve or no numbers in it", () => {
+			const plain = boardBounds(nodes, sheet);
+			expect(boardBounds(nodes, sheet, [], [null, {}, { curve: null }, { curve: { from: { left: NaN, top: 1 }, control: {}, to: {} } }]))
+				.toEqual(plain);
+		});
 	});
 });
 

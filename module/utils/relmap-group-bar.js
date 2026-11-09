@@ -279,20 +279,9 @@ export class RelmapGroupBar extends RelmapBoardBar {
 		this._showPicker(this._hexAsked || !!hex, hex);
 	}
 
-	/**
-	 * Show or put away the picker, and seed it. ⚠ THE BAR'S WIDTH CHANGES WITH IT, and `place`
-	 * measures the bar once per opening, so the measurement is thrown away here as it is for the
-	 * two membership buttons.
-	 */
+	/** Show or put away the picker, and seed it: see `_togglePicker`. */
 	_showPicker(open, hex = "") {
-		const picker = this.inkHex;
-		if (!picker) return;
-		if (picker.hidden === open) {
-			picker.hidden = !open;
-			this.inkMore?.setAttribute?.("aria-expanded", open ? "true" : "false");
-			this._box = null;
-		}
-		if (open) this._paintPicker(hex);
+		this._togglePicker(this.inkHex, this.inkMore, open, hex);
 	}
 
 	/**

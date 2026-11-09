@@ -57,11 +57,20 @@ export const RELMAP_WEIGHT_SETTING = "relmapWeights";
  * LINE has rather than a mark standing on its own; the dial for it belongs after the dial for the
  * thing it is attached to.
  *
+ * THE NAMES COME FIRST, AND THEY ARE NOT PART OF A LINE. They are the writing under each FACE: the
+ * name, the label hung under it and the chips under that, moved together as one dial because they
+ * are read together as who that person is. First on the footer, with a rule after it parting it
+ * from the three that make up a line. See `RELMAP_WEIGHT_SPLIT`.
+ *
+ * ⚠ AND THE WORDS COME NEXT, AHEAD OF THE STROKE. The captions box ("Hide labels") stands straight
+ * after the rule, and the Words dial beside it, so the two controls on the captions sit together;
+ * the stroke and its head follow, still in that order.
+ *
  * KEYS AND NOT LABELS. What each is called is `languages/en.json`'s business, as everywhere else in
  * this feature; what it is called in the DOM is one of these, because that is what the button
  * carries in a `data-` attribute and what the stylesheet's custom property is named after.
  */
-export const RELMAP_WEIGHTS = Object.freeze(["line", "head", "word"]);
+export const RELMAP_WEIGHTS = Object.freeze(["name", "word", "line", "head"]);
 
 /**
  * A hundred per cent is the sheet's own answer, and it is stored as a real number rather than as
@@ -76,6 +85,9 @@ export const RELMAP_WEIGHTS = Object.freeze(["line", "head", "word"]);
  * as an absence would make it indistinguishable from never having asked.
  */
 export const RELMAP_WEIGHT_BASE = 100;
+
+/** The dial the footer draws a rule AFTER: the people's own dial, parted from the line's three. */
+export const RELMAP_WEIGHT_SPLIT = "name";
 
 /**
  * HOW FAR EITHER WAY, and both ends are load-bearing rather than tidy.

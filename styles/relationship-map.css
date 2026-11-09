@@ -259,13 +259,13 @@
    specific argument, so `:where(...) :is(input[type="text"], ...)` scored (0,1,1) and beat this
    file's own single-class rules: it painted a lighter box inside the people picker's find field,
    whose input is meant to be see-through inside its bordered label. */
-:where(.relmap-window.theme-dark :is(input[type="text"], input[type="number"], input[type="search"], select, textarea)) {
+:where(.relmap-window.theme-dark :is(input[type="text"], input[type="number"], input[type="search"], select)) {
 	background: var(--relmap-field-bg);
 	border-color: var(--relmap-rule-strong);
 	color: var(--relmap-text-body);
 }
 
-:where(.relmap-window.theme-dark) :is(input, select, textarea)::placeholder {
+:where(.relmap-window.theme-dark) :is(input, select)::placeholder {
 	color: var(--relmap-text-faint);
 }
 
@@ -418,7 +418,7 @@
    above gives: the people chooser's find box is an input meant to be see-through inside its bordered
    label, and its single-class rule has to win. Later than the dark frame's field rule, which is the
    same weight, so a dark dialog takes these. */
-:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select, textarea)) {
+:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select)) {
 	background: var(--relmap-field-bg);
 	border: 1px solid var(--relmap-rule-strong);
 	border-radius: var(--relmap-radius);
@@ -429,7 +429,7 @@
 /* A ring rather than core's glow, in the accent. The transparent outline is not decoration: a forced-
    colours display drops every box-shadow and draws the outline in its place. The people chooser's find
    box wears it on the box round the field, which is what reads as the control there. */
-:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select, textarea):focus),
+:where(.relmap-dialog :is(input[type="text"], input[type="number"], input[type="search"], select):focus),
 .relmap-person-picker-find:focus-within {
 	border-color: var(--relmap-accent);
 	outline: 2px solid transparent;
@@ -1003,6 +1003,18 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	color: var(--relmap-text-secondary);
 }
 
+/* THE RULE AFTER THE NAMES DIAL, parting the people's own dial from the three that make up a line.
+   Taller and darker than the dials' own boxes, so it reads as a divider on the line and not as one
+   more box edge. The group's `gap` gives it air on both sides. */
+.relmap-heft-split {
+	flex: none;
+	align-self: stretch;
+	width: 1px;
+	min-height: 1.6em;
+	background: currentColor;
+	opacity: 0.45;
+}
+
 /* ONE DIAL: what it resizes, then lighter, the number, heavier.
  *
    ⚠ THE BOX IS WHAT MAKES THIS READ AS THREE CONTROLS AND NOT AS TWELVE (user, 2026-09-09). Laid
@@ -1506,6 +1518,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 	/* The halo is painted outside the glyphs, and a caption may sit right on the edge of the
 	   board. */
 	overflow: visible;
+	/* ⚠ NO `z-index` HERE: the people paint OVER the captions. A face, its name, its label and its
+	   chips stay readable when a caption runs past them. */
 }
 
 /* ⚠ NO `will-change` HERE, AND THAT IS A FINDING RATHER THAN AN OMISSION. Giving this layer a
@@ -1841,15 +1855,224 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 .relmap.is-drawing-group .relmap-view { cursor: crosshair; }
 
 /* THE GROUP'S BAR is the tie bar's shape (see `.relmap-tiebar`, which it shares rules
-   with); only the name field is its own, because here the name is typed IN the bar. */
-.relmap-groupbar-name {
+   with); only the name field is its own, because here the name is typed IN the bar. THE LABEL'S BAR
+   is one field too, typed where the label sits: the same field, a little wider. */
+.relmap-groupbar-name,
+.relmap-personbar-field {
 	width: 11em;
 	height: 26px;
 	margin: 0;
 	font-size: 13px;
 }
+.relmap-personbar-field { width: 13em; }
 
 .relmap-groupbar .relmap-tiebar-btn[hidden] { display: none; }
+
+/* THE PERSON'S BAR STACKS: the label, the chips they wear with Add chip, then the chip form. The
+   element in the selector so it outranks the three bars' shared shell, which comes later.
+
+   ⚠ THE NAMES DIAL NEVER REACHES THE BAR. A pill grows with it only inside the board's
+   `.relmap-chips` (`--relmap-chip-scale`), so the chips drawn here (the worn row, the form's preview)
+   keep their base size beside Add chip: the bar is chrome, not the drawing. */
+div.relmap-personbar {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 6px;
+}
+
+.relmap-personbar-chips {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	max-width: 19em;
+}
+
+/* A row-laid list: spaced with `gap`, and core's list margins taken off its entries. */
+.relmap-personbar-worn {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.relmap-personbar-worn[hidden] { display: none; }
+
+.relmap-personbar-worn-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 1px;
+	margin: 0;
+	padding: 0;
+}
+
+/* Each worn pill is a button: it opens that chip's form. */
+button.relmap-chip { cursor: pointer; }
+button.relmap-chip:hover {
+	background: color-mix(in srgb, var(--relmap-ink, var(--relmap-ink-slate)) 28%, var(--relmap-page));
+	border-color: var(--relmap-ink, var(--relmap-ink-slate));
+	color: var(--relmap-text-body);
+}
+button.relmap-chip:focus-visible,
+.relmap-personbar-chipoff:focus-visible,
+.relmap-personbar-add:focus-visible,
+.relmap-chipform-btn:focus-visible {
+	outline: 2px solid var(--relmap-accent);
+	outline-offset: 1px;
+}
+
+/* Its x: no box of its own, the body ink at half strength until it is pointed at. */
+.relmap-personbar-chipoff {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 20px;
+	height: 20px;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	box-shadow: none;
+	background: none;
+	color: var(--relmap-text-body);
+	font-size: 14px;
+	line-height: 1;
+	opacity: 0.55;
+	cursor: pointer;
+}
+.relmap-personbar-chipoff > i { margin: 0; }
+.relmap-personbar-chipoff:is(:hover, :focus-visible) {
+	opacity: 1;
+	background: var(--relmap-choice-hover-bg);
+}
+
+/* ADD CHIP, with words, and a caret for the menu it drops: a button dressed as a dashed chip, ending
+   the row of chips. Every property core's button rule sets is stated here once, `width` and `height`
+   above all, or it stretches across the row. */
+.relmap-personbar-add {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 0.35em;
+	width: auto;
+	height: 24px;
+	min-height: 0;
+	margin: 0;
+	padding: 0 9px;
+	border-width: 1px;
+	border-style: dashed;
+	border-color: var(--relmap-rule-strong);
+	border-radius: 999px;
+	box-shadow: none;
+	background: none;
+	color: var(--relmap-text-body);
+	font-family: inherit;
+	font-size: 13px;
+	line-height: 1;
+	cursor: pointer;
+}
+.relmap-personbar-add > i {
+	margin: 0;
+	font-size: 1em;
+	font-size: round(1em, 1px);
+}
+.relmap-personbar-add > i.fa-caret-down { opacity: 0.7; }
+.relmap-personbar-add:hover,
+.relmap-personbar-add[aria-expanded="true"] {
+	border-color: var(--relmap-choice-hover-border);
+	background: var(--relmap-choice-hover-bg);
+}
+
+/* THE CHIP FORM: a name with Save and Cancel, the colours, the icons, and the chip as it will look. */
+.relmap-chipform {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding-top: 6px;
+	border-top: 1px solid var(--relmap-rule);
+}
+.relmap-chipform[hidden] { display: none; }
+
+.relmap-chipform-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.relmap-chipform-name {
+	flex: 1 1 auto;
+	min-width: 8em;
+	height: 26px;
+	margin: 0;
+	font-size: 13px;
+}
+
+.relmap-chipform-btn {
+	flex: none;
+	width: auto;
+	margin: 0;
+	padding: 0 10px;
+	border: 1px solid var(--relmap-rule-strong);
+	border-radius: var(--relmap-radius);
+	box-shadow: none;
+	background: var(--relmap-button-bg);
+	color: var(--relmap-text-body);
+	font-size: 13px;
+	cursor: pointer;
+}
+.relmap-chipform-btn:hover {
+	border-color: var(--relmap-choice-hover-border);
+	background: var(--relmap-button-hover-bg);
+}
+.relmap-chipform-btn.is-primary {
+	border-color: var(--relmap-cta-border);
+	background: var(--relmap-cta-bg);
+	color: var(--relmap-cta-text);
+}
+.relmap-chipform-btn.is-primary:hover {
+	border-color: var(--relmap-cta-border-hover);
+	background: var(--relmap-cta-bg-hover);
+	color: var(--relmap-cta-text);
+}
+
+/* A BUTTON BESIDE A FIELD IS EXACTLY AS TALL AS THE FIELD: the chip form's Save and Cancel take the
+   name box's height rather than core's own button height. */
+.relmap-field-btns:has(> input:not([type="checkbox"], [type="radio"], [type="hidden"])) > button {
+	align-self: stretch;
+	height: auto;
+	min-height: 0;
+	max-height: none;
+	margin-block: 0;
+	line-height: normal;
+}
+
+.relmap-chipform-inks {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+/* NINE TO A ROW, which the bar's Up and Down arrows step by (CHIP_ICON_COLUMNS). */
+.relmap-chipform-icons {
+	display: grid;
+	grid-template-columns: repeat(9, 26px);
+	gap: 2px;
+}
+
+.relmap-chipform-foot {
+	justify-content: space-between;
+	min-height: 26px;
+}
+
+.relmap-chipform-preview {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
 
 /* THE "DRAW LINES" TOOL IS ARMED: every face draws a line rather than moving, so it stops looking
    like something to grab. The button wears the shared pressed look (`.relmap-tool[aria-pressed]`). */
@@ -1914,8 +2137,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 .relmap-handle,
 .relmap-bin,
 .relmap-name,
-.relmap-tag,
-.relmap-pen { pointer-events: auto; }
+.relmap-subtitle,
+.relmap-chips { pointer-events: auto; }
 
 /* THE RIM IS ITS OWN TOKEN AND NOT `--relmap-rule`, WHICH EVERY OTHER LINE IN THIS WINDOW READS. That
    one is a HAIRLINE between surfaces, tuned to be barely there at 1px; this is a 3px rim drawn ROUND A
@@ -1995,135 +2218,243 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    lines and the captions together and keeps the diagram a diagram. That is a real difference from
    the rest of the system and worth knowing about: raising the font setting grows this window's bar,
    tabs and dialogs and leaves the board alone until it is zoomed. Matched by
-   `.relmap-label-text`, which is the same decision for the captions on the lines. */
+   `.relmap-label-text`, which is the same decision for the captions on the lines.
+
+   AND THE FOOTER'S "NAMES" DIAL, which moves this and the label under it together without the
+   rest of the board (module/relmap/relmap-weights.js `name`). It is a multiplier on these same
+   board pixels, and the geometry measures the same multiplier (`personReach` in
+   utils/relmap-geometry.js), so a group outline still goes round a name of any size. */
 .relmap-name {
-	/* ONE LINE OF THE PLATE (`.relmap-plate` below), which is what hangs it off the face out of the
-	   flow, for the reason `.relmap-node` above gives at length: a caption in the flow makes the
-	   node taller than the circle, and the circle then stops sitting on the coordinate its lines
-	   are drawn to. In here, only the words' own look. It is still a drop target and still
-	   hit-tested (the drag walks up to `[data-relmap-node]` from whatever is under the pointer),
-	   and it still takes no part in where anything is measured. */
-	flex: none;
+	/* HUNG UNDER THE FACE, OUT OF THE FLOW, for the reason `.relmap-node` above gives at
+	   length: a caption in the flow makes the node taller than the circle, and the circle then
+	   stops sitting on the coordinate its lines are drawn to. `top: 100%` is the bottom of the
+	   face, which is what this box now is. It is still a drop target and still hit-tested (the
+	   drag walks up to `[data-relmap-node]` from whatever is under the pointer), and it still
+	   takes no part in where anything is measured. */
+	position: absolute;
+	top: 100%;
+	left: 50%;
+	margin-top: var(--relmap-name-gap);
 	padding: 0 0.3em;
-	/* Sized to the name and then capped, because the plate lays each line out at its own width
-	   and hands no column down. Beside the face the cap is a tag's (the side rules below). */
+	/* Sized to the name and then capped, because an absolute box has no column to take its width
+	   from any more. The transform centres whatever that comes out as under the face. */
 	width: max-content;
-	max-width: 108px;
+	max-width: calc(var(--relmap-name-w) * var(--relmap-name-scale, 1));
+	transform: translateX(-50%);
 	border-radius: var(--relmap-radius-sm);
 	background: var(--relmap-page);
 	color: var(--relmap-text-body);
-	font-size: 12px;
+	font-size: calc(14px * var(--relmap-name-scale, 1));
+	/* ⚠ A WHOLE NUMBER OF PIXELS, at every setting of the names dial. A line box of 31.5px (the dial
+	   at 150%) has its half-leading rounded by the browser, and the name came out a pixel high in its
+	   chip at every setting that left a fraction. Rounded, it sits mid-chip at all of them. The
+	   geometry rounds the same way (`personReach`); `1.5` is the same height for a browser without
+	   `round()`. */
 	line-height: 1.5;
+	line-height: round(var(--relmap-name-line) * var(--relmap-name-scale, 1), 1px);
 	text-align: center;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-/* THE TAGS UNDER THE NAME: "deceased", "The Iron Knight". Lines of the plate like the name, one
-   each, stacked under it by the plate so the pitch lives here beside the name's own figures: the
-   name is 18px tall (12px type at 1.5) and each tag is a 16px line. The name's pad of page colour,
-   so a tag crossing a line is read over it.
+/* THE LABEL UNDER THE NAME ("Iron Knight", "Deceased"), this map's and not the actor's.
 
-   TWICE THE NAME'S WIDTH, 216px, and not the name's 108. A name is a proper noun that must stay under its own face on
-   a crowded board; a tag is a phrase, and sixteen letters cut "Ruler of the Rexford" in half. Twice the name shows most
-   phrases whole and still stops a forty-letter one short of the next face but one. On a fresh ring the faces stand
-   108px apart, so a tag this wide can lie across the near half of a same-height neighbour's tag (never their face):
-   accepted, and the later node in the markup paints over the earlier one's pad.
-   ⚠ relmap-geometry.js KNOWS THIS FIGURE TOO: `RELMAP_TAG_MAX_PX` caps the sideways reach it gives a wide tag
-   (`plateReach`), and a test holds the two to one number.
+   Hung a pixel under the name chip and set like it -- the same paper, the same body ink, in board
+   PIXELS for the reason the name's rule gives -- but smaller and in italics, so it reads as what the
+   person IS rather than who. Never coloured: a reader on a magnifier gets body ink on paper.
 
-   ⚠ relmap-geometry.js KNOWS THE PITCH. A group's outline and the board's frame reach 16px further
-   for every tag a person wears (`plateReach`); change it here and there together.
+   TWO LINES AT MOST, then an ellipsis, with the whole of it in the tooltip: "Acolyte of the
+   Celebrated Seer" fits whole, and a paragraph does not cover the faces below.
 
-   THE QUIET INK AND NOT THE BODY'S, so the name stays the thing a reader finds first. It is the token
-   the captions' quiet words use, held to 4.5:1 on every theme and both boards by
-   tests/styles/relationship-map-inks.test.js. Never bold: the name's `is-selected` rule is the
-   name's. And a press on a tag moves the person, as a press on the name does (the pointer-events
-   line above). */
-.relmap-tag {
-	flex: none;
-	padding: 0 0.3em;
-	width: max-content;
-	max-width: 216px;
-	border-radius: var(--relmap-radius-sm);
-	background: var(--relmap-page);
-	color: var(--relmap-text-quiet);
-	font-size: 12px;
-	line-height: 16px;
-	text-align: center;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
+   ⚠ THE NUMBERS ARE THE GEOMETRY'S, and read from it: the `--relmap-name-*`, `--relmap-under-gap`,
+   `--relmap-subtitle-*` and `--relmap-chip-*` sizes here are written on the window's root from
+   utils/relmap-geometry.js `relmapSizeProperties`, which a group's outline and the board's framing
+   are measured with. The name chip's line, the width and the type all grow with the reader's names
+   dial (`--relmap-name-scale`); the face and the two small gaps do not (`personReach`).
 
-/* THE PLATE: the name and the tags under it, one block hung off the face OUT OF THE FLOW, for the
-   reason `.relmap-node` above gives at length: a caption in the flow makes the node taller than the
-   circle, and the circle then stops sitting on the coordinate its lines are drawn to. The plate is
-   absolute and the words stack inside it in the flow, so the stylesheet owns the pitch in one place:
-   the name is 18px (12px type at 1.5), each tag a 16px line, and the plate's own edge is where the
-   stack starts.
+   For somebody who may edit it is a BUTTON, so core's button dressing comes off it: no border, no
+   fill but the paper, no fixed height, and a plain block rather than core's flex box.
 
-   BELOW IS WHERE EVERY BOARD HAS ALWAYS DRAWN IT, and these figures are that board's to the pixel:
-   2px under the face, so the name runs y 74..92 of the 72px box and the first tag 92..108, as the
-   old `top: 100%; margin-top: 2px` and `top: calc(100% + 20px + i * 16px)` put them. 216px wide and
-   centred (`left: 50% - 108px`), a tag's cap, so a wide tag has its whole room and a short name sits
-   centred inside it.
-
-   THE OTHER THREE SIDES are the node's to say (`data-relmap-side`, the stored `side`), for a board
-   where the lines run over the words under somebody. Each stands 14px off the face: the handle and
-   the trash can overhang the face by 12px at the top corners (y -12..18, x -12..18 and 54..84), and
-   the name's own 2px gap makes 14, so the words clear both discs on every side. Above, the plate ends
-   14px over the face's top, the name first and the tags under it as everywhere. Beside the face it
-   stands level with the middle (`translateY(-50%)`: the plate is 18 + 16 a tag tall, even, so the
-   half is whole pixels) and is aligned towards the face, and the name may be as wide as a tag there,
-   one column reading as one. The discs' invisible 6px press pads still reach 4px into a plate's
-   nearest corner while the node is hovered: accepted.
-
-   ⚠ relmap-geometry.js KNOWS ALL OF THIS: `plateReach` gives a group's outline and the board's frame
-   the face and the plate on its side from these figures (`RELMAP_PLATE_AIR_PX` 14, the name's 108,
-   the tag's 216, 18 and 16), and tests hold the exported ones to one number. Change here and there
-   together.
-
-   NO POINTER EVENTS OF ITS OWN (inherited `none` from `.relmap-node`, said here so nobody wonders):
-   the words inside keep theirs from the list above, so a press on a name or a tag still moves the
-   person and a double click still opens the editor, and the paper between two words is the board's. */
-.relmap-plate {
+   ⚠ THE CLAMP IS ON THE INNER SPAN (`-words`), NEVER ON THIS BOX. Chrome lays a <button> out as a
+   box of its own kind whatever `display` asks for (it computes as `flow-root`), so a line clamp
+   set here does nothing and a long label runs on down over whoever stands below. */
+/* THE COLUMN UNDER THE NAME: the label, then the chips (`.relmap-chips`). It carries the label's old
+   place, so a chip sits right under a one-line label, and right under the name when there is no
+   label. ⚠ `top` is the geometry's (see the label's note above). No width cap of its own: the label
+   keeps its own, and a row of chips may run to its (`--relmap-chip-row-w`). */
+.relmap-under {
 	position: absolute;
-	top: calc(100% + 2px);
-	left: calc(50% - 108px);
-	width: 216px;
+	top: calc(100% + var(--relmap-under-gap) + var(--relmap-name-line) * var(--relmap-name-scale, 1));
+	top: calc(100% + var(--relmap-under-gap) + round(var(--relmap-name-line) * var(--relmap-name-scale, 1), 1px));
+	left: 50%;
+	transform: translateX(-50%);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
+	width: max-content;
+}
+
+.relmap-subtitle {
+	position: relative;
+	flex: none;
+	box-sizing: border-box;
+	display: block;
+	width: max-content;
+	max-width: calc(var(--relmap-subtitle-w) * var(--relmap-name-scale, 1));
+	height: auto;
+	min-height: 0;
+	margin: 0;
+	padding: 0 0.35em;
+	border: 0;
+	border-radius: var(--relmap-radius-sm);
+	box-shadow: none;
+	background: var(--relmap-page);
+	color: var(--relmap-text-body);
+	font-family: inherit;
+	font-size: calc(13px * var(--relmap-name-scale, 1));
+	font-style: italic;
+	font-weight: 400;
+	/* Whole pixels, for the name's reason above. */
+	line-height: calc(var(--relmap-subtitle-line) * var(--relmap-name-scale, 1));
+	line-height: round(var(--relmap-subtitle-line) * var(--relmap-name-scale, 1), 1px);
+	text-align: center;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	overflow: hidden;
+}
+
+.relmap-subtitle-words {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+}
+
+button.relmap-subtitle { cursor: text; }
+
+button.relmap-subtitle:hover {
+	background: var(--relmap-page);
+	color: var(--relmap-text-body);
+	box-shadow: none;
+}
+
+button.relmap-subtitle:focus-visible {
+	outline: 2px solid var(--relmap-text-body);
+	outline-offset: 1px;
+}
+
+/* NOTHING WRITTEN YET: "Add a label", out of sight until the person is hovered or the button itself
+   has the focus, the handle's own bargain. Dashed and quieter, so it reads as an offer and never as
+   something the person is called. `opacity`, like the handle, so it stays a tab stop.
+
+   ⚠ AND IT TAKES NO PRESS WHILE IT IS OUT OF SIGHT. Unseen, it still caught every click about 63x15px
+   under each name: a line or a caption running there opened the label bar instead of its own, a
+   press there moved the person instead of panning, and a tap on a touch screen raised the bar and
+   the keyboard for a button nobody could see. It takes presses only while it is showing. */
+.relmap-subtitle.is-empty {
+	opacity: 0;
 	pointer-events: none;
+	outline: 1px dashed color-mix(in srgb, var(--relmap-text-body) 45%, transparent);
+	outline-offset: -1px;
+	color: var(--relmap-text-body);
+	transition: opacity 120ms ease;
+	/* Out of sight, it still stands in the column; after the chips, so it leaves no gap above them. */
+	order: 1;
 }
 
-.relmap-node[data-relmap-side="above"] .relmap-plate {
-	top: auto;
-	bottom: calc(100% + 14px);
+.relmap-node:hover .relmap-subtitle.is-empty,
+.relmap-subtitle.is-empty:focus-visible { opacity: 1; pointer-events: auto; }
+
+/* TAG CHIPS UNDER THE LABEL ("Dead", "Noble"), in this board's pixels and its eight inks. Body ink on
+   a tint of the chip's ink, with an ink rim and an ink icon: the colour is never the only thing
+   saying which chip it is, and the words are never coloured.
+
+   ⚠ THE ROWS ARE THE WINDOW'S, NOT THE STYLESHEET'S. `chipLayout` (utils/relmap-geometry.js) decides
+   which pills share a row, and this draws each row as given and never wraps, so the height a group
+   outline reaches round (`chipReach`) is the height drawn: the gap above the first row and between
+   rows is `RELMAP_CHIP_GAP_PX`, and the pill's height is `RELMAP_CHIP_H_PX`, both read from the
+   geometry (`--relmap-chip-gap`, `--relmap-chip-h`). The widths, paddings and type grow with the
+   names dial with the pill, which is what keeps the packing the same at every setting of it.
+
+   ⚠ THE DIAL REACHES A PILL THROUGH `--relmap-chip-scale`, which only the board's own rows set. The
+   same pill is drawn in the person bar and the chip form, which are chrome and keep their base size. */
+.relmap-chips {
+	--relmap-chip-scale: var(--relmap-name-scale, 1);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--relmap-chip-gap);
+	margin: var(--relmap-chip-gap) 0 0;
 }
 
-.relmap-node[data-relmap-side="right"] .relmap-plate {
-	top: 50%;
-	left: calc(100% + 14px);
-	transform: translateY(-50%);
-	align-items: flex-start;
+.relmap-chip-row {
+	display: flex;
+	justify-content: center;
+	gap: calc(var(--relmap-chip-gap) * var(--relmap-chip-scale, 1));
+	max-width: calc(var(--relmap-chip-row-w) * var(--relmap-chip-scale, 1));
 }
 
-.relmap-node[data-relmap-side="left"] .relmap-plate {
-	top: 50%;
-	left: auto;
-	right: calc(100% + 14px);
-	transform: translateY(-50%);
-	align-items: flex-end;
+.relmap-chip {
+	box-sizing: border-box;
+	display: inline-block;
+	flex: none;
+	width: auto;
+	min-width: 0;
+	max-width: calc(var(--relmap-chip-row-w) * var(--relmap-chip-scale, 1));
+	height: calc(var(--relmap-chip-h) * var(--relmap-chip-scale, 1));
+	height: round(var(--relmap-chip-h) * var(--relmap-chip-scale, 1), 1px);
+	min-height: 0;
+	margin: 0;
+	padding: 0 calc(var(--relmap-chip-pad) * var(--relmap-chip-scale, 1));
+	/* The 1em line box (line-height 1) in the middle of the pinned height, for a browser without
+	   `text-box`; the trim below replaces it with the cap band. 2px is the rim, top and bottom. */
+	padding-block: calc((round(var(--relmap-chip-h) * var(--relmap-chip-scale, 1), 1px) - 2px - 1em) / 2);
+	/* Cut with an ellipsis rather than spilling past its row; the tooltip has the whole name. */
+	overflow: hidden;
+	text-overflow: ellipsis;
+	border: 1px solid var(--relmap-ink, var(--relmap-ink-slate));
+	border-radius: 999px;
+	box-shadow: none;
+	background: color-mix(in srgb, var(--relmap-ink, var(--relmap-ink-slate)) 14%, var(--relmap-page));
+	color: var(--relmap-text-body);
+	font-family: var(--relmap-font);
+	font-size: calc(13px * var(--relmap-chip-scale, 1));
+	font-style: normal;
+	font-weight: 600;
+	/* 1, so an untrimmed label (a browser without text-box) is a 1em box the pinned height centres. */
+	line-height: 1;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	white-space: nowrap;
 }
 
-/* Beside the face the name may run as wide as a tag: the plate is one column there, and a name cut
-   at 108 over a 216 tag would read as a mistake. */
-.relmap-node[data-relmap-side="left"] .relmap-name,
-.relmap-node[data-relmap-side="right"] .relmap-name {
-	max-width: 216px;
+.relmap-chip > i {
+	margin: 0 calc(var(--relmap-chip-icon-gap) * var(--relmap-chip-scale, 1)) 0 0;
+	color: var(--relmap-ink, var(--relmap-ink-slate));
+	font-size: 1em;
+	font-size: round(1em, 1px);
+	vertical-align: baseline;
+}
+
+/* ⚠ A BLOCK, NEVER A FLEX BOX, AND TRIMMED TO ITS CAPITALS. The trim only reaches a block container's
+   own lines, so the pill is `inline-block` and its words sit in it as ordinary text: what the padding
+   centres in the pinned height is then the cap band itself, not the line box (whose half-leading
+   Blink floors to whole pixels). The words are all capitals, so the cap band is the whole of what is
+   seen. The span is kept, unstyled, as the one place the name is said. */
+@supports (text-box: trim-both cap alphabetic) {
+	.relmap-chip {
+		text-box: trim-both cap alphabetic;
+		padding-block: calc((round(var(--relmap-chip-h) * var(--relmap-chip-scale, 1), 1px) - 2px - 1cap) / 2);
+	}
+}
+
+/* "+2": the pills that did not fit two rows, named in its tooltip. Quieter than a chip. */
+.relmap-chip--more {
+	border-style: dashed;
+	border-color: var(--relmap-rule-strong);
+	background: var(--relmap-page);
 }
 
 /* 30px AND NOT THE 22 IT WAS, with a pad of invisible reach round it below, so the press that counts
@@ -2160,49 +2491,6 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    is part of the button for a hit test, and paints nothing. ⚠ Measured from INSIDE the button's
    border (an absolute box hangs off the padding box), so -6px reaches about 5px past the disc. */
 .relmap-handle::before {
-	content: "";
-	position: absolute;
-	inset: -6px;
-	border-radius: 50%;
-}
-
-/* THE PEN, for the tags under the name: the handle's twin in size, reveal and reach, on the RIGHT OF
-   THE FACE A LITTLE BELOW THE MIDDLE. Not a corner: the top-right is the handle's, the top-left is
-   the trash can's, and the two below belong to the name -- its pad can run 108px wide (x -18..90 of
-   the node's 72px box) and starts 2px under the face (y 74), so a disc on either bottom corner would
-   sit over the end of a long name on hover and take its presses. Placed by the figures instead: a
-   30px disc at right -22px / bottom 4px covers x 64..94, y 38..68, and with its 6px pad reaches y 74,
-   the name's top edge, and no further; its centre stands 46px off the face's, as the handle's does,
-   and 50px off the handle's own, so the two are never neighbours.
-
-   AND ON THE LEFT WHEN THE PLATE STANDS ON THE RIGHT (`data-relmap-side`, the rule below): the words
-   then run from x 86 across the very spot, so the disc crosses to the mirror of its place, x -22..8,
-   y 38..68 -- 20px under the trash can's reach at the top-left corner, and as far inside the rim as
-   it stands on the right. On the other three sides nothing of the plate comes near it. */
-.relmap-pen {
-	position: absolute;
-	right: -22px;
-	bottom: 4px;
-	width: 30px;
-	height: 30px;
-	padding: 0;
-	border-radius: 50%;
-	line-height: 0;
-	font-size: 14px;
-	opacity: 0;
-	pointer-events: none;
-	transition: opacity 120ms ease;
-}
-
-.relmap-node:hover .relmap-pen,
-.relmap-pen:focus-visible { opacity: 1; pointer-events: auto; }
-
-.relmap-node[data-relmap-side="right"] .relmap-pen {
-	right: auto;
-	left: -22px;
-}
-
-.relmap-pen::before {
 	content: "";
 	position: absolute;
 	inset: -6px;
@@ -2267,8 +2555,7 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    rendering artefact as much as a metric. Shoot the node once with an integer clip and express the
    button rects and the ink bounds in that one coordinate system. */
 .relmap-handle > i,
-.relmap-bin > i,
-.relmap-pen > i {
+.relmap-bin > i {
 	margin: 0;
 }
 
@@ -2378,7 +2665,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
    ON THE PANEL TONE AND NOT THE PAGE, unlike the aside above it. The aside murmurs and belongs to
    the paper; this is chrome laid over the drawing and has to read as a thing in front of it. */
 .relmap-tiebar,
-.relmap-groupbar {
+.relmap-groupbar,
+.relmap-personbar {
 	position: absolute;
 	/* Written by `place()`. Here so the first paint before it runs is off-screen rather than in the
 	   top-left corner of the board. */
@@ -2399,7 +2687,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
 /* `display: flex` above beats the attribute on its own, so the hidden state has to be said. */
 .relmap-tiebar[hidden],
-.relmap-groupbar[hidden] { display: none; }
+.relmap-groupbar[hidden],
+.relmap-personbar[hidden] { display: none; }
 
 /* THE WRITING FIELD, CLIPPED OFF THE BAR.
 
@@ -3757,47 +4046,8 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 
 
 /* ── The two small questions: a line of text, and a row off a short list ──────────────────────── */
-.relmap-text-prompt input[type="text"],
-.relmap-text-prompt textarea {
+.relmap-text-prompt input[type="text"] {
 	width: 100%;
-}
-
-/* A few lines in one box (the tags under a name), with the hint under it. */
-.relmap-text-prompt--lines {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-}
-/* `font: inherit`: core sets every textarea in monospace, which is right for a macro and wrong for three words
-   under a name; the one-line boxes beside it are already in the window's own type. */
-.relmap-text-prompt--lines textarea { resize: vertical; font: inherit; }
-
-/* THE ROW OF CHOICES under the box (where the name and tags stand): a legend on its own line and the
-   radios in one row under it.
-   ⚠ `flex-direction: row` SAID, and not left to the default: core's `@layer blocks.base` lays every
-   `.standard-form fieldset` out as a column with a border, a pad and a gap of its own (foundry2.css),
-   and a DialogV2's content sits in a `.standard-form`. This stylesheet is unlayered, so it wins on
-   every property it declares and on none it leaves out: without the row the four would stack. */
-.relmap-text-prompt-choice {
-	display: flex;
-	flex-direction: row;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 4px 14px;
-	border: 0;
-	margin: 0;
-	padding: 0;
-}
-
-.relmap-text-prompt-choice legend {
-	padding: 0;
-	margin-bottom: 2px;
-}
-
-.relmap-text-prompt-radio {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
 }
 
 /* Several labelled boxes: each label sits on its own line above its box. */
@@ -3960,3 +4210,98 @@ THE WINDOW'S FIRST ROW, and it reads as its own stratum rather than as chrome: w
 .relmap-window.relmap-high-contrast .relmap-line.is-dashed {
 	stroke-dasharray: var(--relmap-dashed-rhythm);
 }
+
+/* ── The suggestion menu ───────────────────────────────────────────────────────────────────────
+   Dropped from Add chip (utils/suggestion-menu.js). It lives on <body> as a fixed element, so no
+   window's scroll box can clip it, and carries `relmap-window` with the window's theme classes so the
+   tokens at the top of this file reach it. Height-capped by the script. */
+.relmap-suggestion-menu {
+	position: fixed;
+	z-index: 10000;
+	max-height: 300px;
+	overflow-y: auto;
+	margin: 0;
+	padding: 4px;
+	list-style: none;
+	background: var(--relmap-page);
+	border: 1px solid var(--relmap-rule-strong);
+	border-radius: var(--relmap-radius);
+	box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+	font-family: var(--relmap-font);
+	font-size: var(--relmap-fs-sm);
+	color: var(--relmap-text-body);
+}
+
+/* A row is the value and, optionally, a dimmed hint pushed to the right edge. */
+.relmap-suggestion-menu-option {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+	margin: 0;
+	padding: 5px 8px;
+	border-radius: var(--relmap-radius-sm);
+	font-weight: 400;
+	line-height: 1.3;
+	cursor: pointer;
+}
+
+/* The name wins the space; a long hint is what gets clipped, never the thing being picked. Each
+   keeps a little room at its end for an italic last letter's lean. */
+.relmap-suggestion-menu-value,
+.relmap-suggestion-menu-hint {
+	padding-inline-end: 0.2em;
+}
+.relmap-suggestion-menu-value {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.relmap-suggestion-menu-hint {
+	flex: none;
+	max-width: 45%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--relmap-fs-2xs);
+	font-style: italic;
+	color: var(--relmap-text-quiet);
+}
+
+/* Its items take keyboard focus, so the focused one is lit the way a hovered one is, and the
+   browser's own focus ring is not drawn on top of that fill. The first item adds a blank one and is
+   set apart by italics. */
+.relmap-suggestion-menu-option:hover,
+.relmap-suggestion-menu-option:focus-visible {
+	background: var(--relmap-choice-hover-bg);
+}
+.relmap-suggestion-menu-option:focus-visible {
+	outline: 2px solid var(--relmap-cta-border);
+	outline-offset: -2px;
+}
+.relmap-suggestion-menu-option.is-blank { font-style: italic; }
+.relmap-suggestion-menu-heading {
+	margin: 4px 0 2px;
+	padding: 6px 8px 2px;
+	border-top: 1px solid var(--relmap-rule-strong);
+	color: var(--relmap-text-quiet);
+	font-size: var(--relmap-fs-2xs);
+	font-style: italic;
+}
+/* Already on the list: still shown, so the list reads the same every time, but not pickable. */
+.relmap-suggestion-menu-option.is-used {
+	color: var(--relmap-text-quiet);
+	cursor: default;
+}
+.relmap-suggestion-menu-option.is-used:hover { background: none; }
+/* An item's icon (a chip's, in its own ink), before its words. The words then take the row, so they
+   stay beside the icon rather than being spaced out to its middle. */
+.relmap-suggestion-menu-icon {
+	flex: none;
+	width: 1.25em;
+	text-align: center;
+	color: var(--relmap-ink, currentColor);
+}
+.relmap-suggestion-menu-icon > i { margin: 0; }
+.relmap-suggestion-menu-icon ~ .relmap-suggestion-menu-value { flex: 1 1 auto; }

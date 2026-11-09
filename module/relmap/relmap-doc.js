@@ -42,7 +42,7 @@ import { clipText } from "../utils/strings.js";
 import { deletionEntry } from "../utils/foundry-compat.js";
 import { moveWithin, insertionIndexIn } from "../utils/list-reorder.js";
 import {
-	RELMAP_FLAG, RELMAP_VERSION, emptyGraph, normalizeGraph, relmapPath,
+	RELMAP_FLAG, RELMAP_VERSION, emptyGraph, normalizeChips, normalizeGraph, relmapPath, storableGraph,
 } from "./relmap-store.js";
 
 /** The folder every map is filed under, in a colour of its own so it is easy to find. */
@@ -89,10 +89,10 @@ export async function ensureRelationshipMapFolder() {
  * the folder, or files it beside the front it belongs to, has not stopped it being a map — and a
  * lookup that went by folder would quietly lose it. The folder is filing, the flag is identity.
  */
-export function listRelationshipMaps() {
-	return (game.journal?.contents ?? [])
-		.filter(entry => !!entry.getFlag?.(MODULE_ID, RELMAP_FLAG))
-		.sort((a, b) => a.name.localeCompare(b.name));
+export function listRelationshipMaps({ sorted = true } = {}) {
+	const maps = (game.journal?.contents ?? []).filter(entry => !!entry.getFlag?.(MODULE_ID, RELMAP_FLAG));
+	// A walk over every board for its data (relmap-faces.js `everyBoard`) has no use for the order.
+	return sorted ? maps.sort((a, b) => a.name.localeCompare(b.name)) : maps;
 }
 
 /** One map by id, or null when it is not one of ours. */
@@ -461,7 +461,8 @@ function mapPageData(name, graph, sort, { shown = false } = {}) {
 			default: shown ? levels.INHERIT : levels.NONE,
 			...(mine ? { [mine]: levels.OWNER } : {}),
 		},
-		flags: { [MODULE_ID]: { [RELMAP_FLAG]: graph } },
+		// Without what a read derives (the chip rows), which a carried normalized board still holds.
+		flags: { [MODULE_ID]: { [RELMAP_FLAG]: storableGraph(graph) } },
 	};
 }
 
@@ -525,6 +526,38 @@ export async function ensureFirstMapPage(entry) {
 		deletionEntry(relmapPath("shape")),
 	]));
 	return page;
+}
+
+/** The open-time pass running for each map on this client, by the map's id. See `seedMap`. */
+const SEEDING = new Map();
+
+/**
+ * Run a map's open-time pass (its first page, the tidy) ONCE AT A TIME PER MAP ON THIS CLIENT, NOT
+ * PER WINDOW.
+ *
+ * ⚠ TWO WINDOWS CAN BE OPEN ONTO THE SAME MAP, and a saved layout that reopens both at load would run
+ * two passes over the same unchanged board side by side. So a pass already running for this map is
+ * handed back to the second caller to wait on instead of starting another. One that has FINISHED is
+ * forgotten, because it has written: a later window runs its own, which finds nothing left to do.
+ *
+ * The pass itself is the caller's, run through the window that asks; what is kept here is only which
+ * map has one under way.
+ *
+ * @param {string} entryId  the map's id.
+ * @param {Function} pass  `() => Promise`, started at once when no pass is running for this map.
+ * @returns {Promise}  the pass under way for this map, this caller's or the one already running.
+ */
+export function seedMap(entryId, pass) {
+	const key = String(entryId ?? "");
+	const running = SEEDING.get(key);
+	if (running) return running;
+	let started;
+	// A pass that throws before its first await is a failed pass like any other, not a throw out of
+	// here that leaves the map marked as seeding for ever.
+	try { started = Promise.resolve(pass()); } catch (err) { started = Promise.reject(err); }
+	const seeding = started.finally(() => { if (SEEDING.get(key) === seeding) SEEDING.delete(key); });
+	SEEDING.set(key, seeding);
+	return seeding;
 }
 
 /**
@@ -672,6 +705,25 @@ export async function moveMapPage(entry, movedId, beforeId = null) {
  */
 export function readGraph(doc) {
 	return normalizeGraph(doc?.getFlag?.(MODULE_ID, RELMAP_FLAG));
+}
+
+/**
+ * Only the chips a board defines (relmap-store.js `normalizeChips`), for a look across every board that
+ * needs nothing else: `readGraph` would lay out every person on it too.
+ */
+export function readChips(doc) {
+	return normalizeChips(doc?.getFlag?.(MODULE_ID, RELMAP_FLAG)?.chips);
+}
+
+/**
+ * Whether anybody stored on this board stands for `uuid`, read off the flag without normalizing it: the
+ * cheap first look before a change to one actor reads a whole board. A person `readGraph` would drop
+ * still counts, which only means that board is read and found to need nothing.
+ */
+export function boardCarries(doc, uuid) {
+	const nodes = doc?.getFlag?.(MODULE_ID, RELMAP_FLAG)?.nodes;
+	if (!uuid || !nodes || typeof nodes !== "object") return false;
+	return Object.values(nodes).some(node => node && typeof node === "object" && String(node.uuid ?? "") === uuid);
 }
 
 /**

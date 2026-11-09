@@ -13,9 +13,13 @@ import { RELMAP_SHEET_CLASS, canCreateRelationshipMap, getRelationshipMap } from
 import { chooseRelationshipMap, mapToOpen, promptForNewRelationshipMap } from "./module/relmap/relmap-make.js";
 import { openRelationshipMap } from "./module/dialogs/RelationshipMapWindow.js";
 import { addOpenMapsButton, hideRelationshipMapRows } from "./module/hooks/journal-directory-maps.js";
-import { installThemeFollower, refreshOpenWindows } from "./module/utils/window-theme.js";
+import { installThemeFollower, openWindows, refreshOpenWindows } from "./module/utils/window-theme.js";
 import { installWindowRestore } from "./module/utils/window-restore.js";
 import { localize } from "./module/utils/i18n.js";
+import { keepDeadChipsCurrent, keepSavedFacesCurrent, sweepStaleFaces } from "./module/relmap/relmap-faces.js";
+import { deathEffectActor } from "./module/relmap/relmap-dead.js";
+import { setChipTextMeasure } from "./module/utils/relmap-geometry.js";
+import { canvasChipMeasure } from "./module/utils/relmap-chip-measure.js";
 
 /** The templates the window renders, fetched once at init rather than on the first open. */
 const TEMPLATES = [
@@ -93,4 +97,29 @@ Hooks.once("ready", () => {
 	};
 	const module = game.modules.get(MODULE_ID);
 	if (module) module.api = api;
+	// Tag chips are packed into rows by their width in the board's own font (utils/relmap-chip-measure.js).
+	// Until that face has loaded they are packed by an estimate; once it has, every open map repaints.
+	setChipTextMeasure(canvasChipMeasure(document, {
+		onFaceLoaded: () => { for (const [, app] of openWindows()) app?.sync?.(); },
+	}));
+	// Each person on a map keeps a saved copy of their name and picture for when their actor is
+	// deleted; a rename or new art refreshes it on every board (relmap/relmap-faces.js), and the primary
+	// GM's load catches up whatever changed while no GM was on to write a hidden board.
+	const warn = err => console.warn("Relationship Map | refreshing saved names on the map failed", err);
+	Hooks.on("updateActor", (actor, changed, options, userId) => {
+		keepSavedFacesCurrent(actor, changed, options, userId).catch(warn);
+	});
+	// Off the ready path: it reads every board in the world, and nothing on screen waits for it.
+	setTimeout(() => sweepStaleFaces().catch(warn), 0);
+	// Somebody marked dead (core's Defeated status, the skull on the token HUD), or brought back, puts the
+	// Dead chip on (or takes it off) everyone standing for them on every board (relmap/relmap-dead.js);
+	// the same one-writer rule as the saved faces.
+	const warnDead = err => console.warn("Relationship Map | updating the Dead chip on the map failed", err);
+	const followDeath = (effect, changed, userId) => {
+		const actor = deathEffectActor(effect, changed);
+		if (actor) keepDeadChipsCurrent(actor, userId).catch(warnDead);
+	};
+	Hooks.on("createActiveEffect", (effect, _options, userId) => followDeath(effect, null, userId));
+	Hooks.on("deleteActiveEffect", (effect, _options, userId) => followDeath(effect, null, userId));
+	Hooks.on("updateActiveEffect", (effect, changed, _options, userId) => followDeath(effect, changed, userId));
 });

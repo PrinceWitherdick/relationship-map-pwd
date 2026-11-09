@@ -20,28 +20,29 @@ import { CTA_CLASS, currentScheme, dialogWindow, themedDialogClasses, windowClas
 import { clipText, escHtml } from "../utils/strings.js";
 import { openOrFocus } from "../utils/open-or-focus.js";
 import { openingSize } from "../utils/opening-size.js";
-import { getDragEventData, renderTemplate } from "../utils/foundry-compat.js";
+import { getDragEventData, renderTemplate, resolveSync } from "../utils/foundry-compat.js";
 import { openLinkedActorSheet } from "../utils/actor-link.js";
 import { portraitOrNone } from "../utils/portrait.js";
-import { format, listOf, localize } from "../utils/i18n.js";
+import { format, localize } from "../utils/i18n.js";
 import { MODULE_ID } from "../module-id.js";
 import { ZoomPanSurface } from "../utils/zoom-pan-surface.js";
 import { groupPressed, pressStartsBox, pressStartsDraw, wireRelmapDrag } from "../utils/relmap-drag.js";
 import {
 	RELMAP_BOARD_ASPECT, RELMAP_BOARD_WIDTH, RELMAP_CAPTION_FLOOR_PX, RELMAP_CAPTION_PX,
-	RELMAP_GROUP_CORNERS, RELMAP_HEAD_PX,
+	RELMAP_GROUP_CORNERS, RELMAP_HEAD_PX, RELMAP_NODE_PX,
 	ROUTE_HEAD_PATH, ROUTE_HEAD_VIEWBOX,
 	bandPath, boardBounds, boardMetrics,
 	captionRoomPx, captionSize, clampReach, clearanceBow, curveWithGap, edgeArrowheads, edgeBow,
-	edgeCurve, edgeLabelAnchor, freeSpot, groupMinSize, groupShapes, groupsInside, growFor, insideGroupShape, resizeRect,
-	seatAlong, spreadLabels,
+	edgeCurve, edgeLabelAnchor, freeSpot, groupFloor, groupShapes, groupsInside, growFor, insideGroupShape, resizeRect,
+	personReach, relmapSizeProperties, seatAlong, spreadLabels,
 } from "../utils/relmap-geometry.js";
 import {
+	RELMAP_CHIP_ICONS, RELMAP_CHIP_NAME_MAX,
 	RELMAP_DASHES, RELMAP_DASH_DEFAULT, RELMAP_DIRS, RELMAP_FLAG, RELMAP_GROUP_DASHES, RELMAP_GROUP_SHAPES, RELMAP_INKS,
-	RELMAP_LABEL_MAX, RELMAP_SEAT_MIN, RELMAP_SIDES, RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN, RELMAP_TAGS_MAX,
-	addEdgePatch, addGroupPatch,
-	addNodePatch, addNodesPatch, dropEdgePatch, dropGroupPatch, dropNodePatch, edgePatch, fanIndexes,
-	groupMembersPatch, groupPatch, nodePatch, readSeat, readTags, seatArrivals, takenSpots,
+	RELMAP_LABEL_MAX, RELMAP_SUBTITLE_MAX, RELMAP_SEAT_MIN, RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN,
+	addEdgePatch, addGroupPatch, chipPatch, chipsWorn, dropChipPatch, nodeChipsPatch,
+	dropEdgePatch, dropGroupPatch, dropNodePatch, edgePatch, fanIndexes,
+	groupMembersPatch, groupPatch, nodePatch, pruneDeadPatch, readSeat, seatArrivals, takenSpots,
 } from "../relmap/relmap-store.js";
 import {
 	RELMAP_INK_ACROSS, RELMAP_INK_PRESETS, boardGrounds, inkPaint, legibleHex, luminance, normalizeHex,
@@ -52,7 +53,7 @@ import { rememberBoard } from "../relmap/relmap-last.js";
 import { penFor, rememberPen } from "../relmap/relmap-pen.js";
 import { getLastSize, rememberSize } from "../relmap/relmap-size.js";
 import {
-	RELMAP_WEIGHTS, RELMAP_WEIGHT_BASE, RELMAP_WEIGHT_MAX, RELMAP_WEIGHT_MIN, RELMAP_WEIGHT_STEP,
+	RELMAP_WEIGHTS, RELMAP_WEIGHT_BASE, RELMAP_WEIGHT_MAX, RELMAP_WEIGHT_MIN, RELMAP_WEIGHT_SPLIT, RELMAP_WEIGHT_STEP,
 	getWeights, setWeights, weightScales,
 } from "../relmap/relmap-weights.js";
 import {
@@ -60,16 +61,23 @@ import {
 } from "../relmap/relmap-history.js";
 import { RelmapTieBar, TIE_DIR_ICONS } from "../utils/relmap-tie-bar.js";
 import { RelmapGroupBar } from "../utils/relmap-group-bar.js";
+import { chipPaint, chipPillHtml } from "../utils/relmap-chip-pill.js";
+import { measuringContext } from "../utils/measuring-canvas.js";
+import { chipElsewhere, chipLibrary, chipWearPatch, spreadChip } from "../relmap/relmap-chips.js";
+import { seatPatch } from "../relmap/relmap-dead.js";
 import {
 	applyPatch, canDeleteRelationshipMap, canEditRelationshipMap, canHideMapPages, createMapPage,
 	deleteMapPage, deleteRelationshipMap,
 	ensureFirstMapPage, getMapPage, isMapPageHidden, listMapPages,
 	mapPageName, moveMapPage, readGraph, relationshipMapName, renameMapPage, renameRelationshipMap,
-	hasLegacyBoard, resolveMapBoard, setMapPageHidden,
+	hasLegacyBoard, resolveMapBoard, seedMap, setMapPageHidden,
 } from "../relmap/relmap-doc.js";
 import { chooseRelationshipMap } from "../relmap/relmap-make.js";
+import { RelmapPersonBar } from "../utils/relmap-person-bar.js";
+import { changedSavedFace, everyBoard, writeBoards } from "../relmap/relmap-faces.js";
+import { isPrimaryGM } from "../utils/primary-gm.js";
 import { pickPersonToAdd, pickPersonToLink } from "./RelationshipLinkDialog.js";
-import { promptForLines, promptForText } from "./content-picker.js";
+import { promptForText } from "./content-picker.js";
 import { createPerson } from "../utils/create-person.js";
 
 // Plain literals, not built from MODULE_ID: tests/templates/partial-registration.test.js proves
@@ -78,13 +86,29 @@ import { createPerson } from "../utils/create-person.js";
 const TEMPLATE = "modules/relationship-map-pwd/templates/dialogs/relationship-map.hbs";
 const BOARD_PARTIAL = "modules/relationship-map-pwd/templates/dialogs/partials/relationship-map-board.hbs";
 
+/**
+ * The attributes that say what a focusable thing on the board is about: a face, the label under it,
+ * its link handle, its bin, a line's caption, a group's name. Read by `_focusKeyIn`, so a repaint
+ * can give the keyboard back to the same one.
+ */
+const FOCUS_KEYS = Object.freeze([
+	"data-relmap-open", "data-relmap-subtitle", "data-relmap-handle", "data-relmap-remove",
+	"data-relmap-words", "data-relmap-group",
+]);
+
+/**
+ * The element under `root` whose `attr` is exactly `value`, or null. Walked rather than built into a
+ * selector, so an id never has to be escaped for CSS.
+ */
+function elementWith(root, attr, value) {
+	for (const el of root?.querySelectorAll?.(`[${attr}]`) ?? []) {
+		if (el.getAttribute?.(attr) === value) return el;
+	}
+	return null;
+}
+
 /** How long a burst of remote writes is allowed to coalesce before the board repaints. */
 const SYNC_DEBOUNCE_MS = 50;
-
-/** Whether two lists of tags say the same lines in the same order. See `_tagPerson`. */
-function sameLines(a, b) {
-	return a.length === b.length && a.every((line, i) => line === b[i]);
-}
 
 /**
  * What one wheel notch multiplies the board's zoom by, and it is DELIBERATELY GENTLER than the
@@ -118,6 +142,9 @@ const CAPTION_READ_PX = 13;
 
 /** How wide a held group's resize corners are ON SCREEN, at any zoom. See `_paintGrips`. */
 const GROUP_GRIP_PX = 16;
+
+/** The chip layout of somebody wearing none (`normalizeGraph` sets `chipLaid` only on a wearer). */
+const NO_CHIPS = Object.freeze({ rows: [], hidden: [] });
 
 /**
  * How long after the last arrow key a nudge is written.
@@ -162,7 +189,7 @@ const NUDGE_COMMIT_MS = 250;
 const BOARD_CONTROLS =
 	"[data-relmap-node], [data-relmap-handle], [data-relmap-remove], [data-relmap-edge], "
 	+ "[data-relmap-hit], [data-relmap-open], [data-relmap-action], .relmap-tiebar, "
-	+ "[data-relmap-group], [data-relmap-group-hit], [data-relmap-grip], .relmap-groupbar";
+	+ "[data-relmap-group], [data-relmap-group-hit], [data-relmap-grip], .relmap-groupbar, .relmap-personbar";
 
 /**
  * And which of them a RIGHT press must not start one from either.
@@ -179,7 +206,7 @@ const BOARD_CONTROLS =
  * board out from under that press would move the very thing they were reading while they chose. So
  * the bar refuses the drag, and everything actually drawn on the board gives way to it.
  */
-const BOARD_MENUS = ".relmap-tiebar, .relmap-groupbar";
+const BOARD_MENUS = ".relmap-tiebar, .relmap-groupbar, .relmap-personbar";
 
 /**
  * ONE GLYPH APIECE FOR THE CORNER OVER THE BOARD, and each is a picture of the thing it resizes
@@ -203,6 +230,9 @@ const WEIGHT_ICONS = Object.freeze({
 	// looks like -- the strokes run corner to corner between faces, never flat.
 	line: "fas fa-slash",
 	word: "fas fa-font",
+	// A PERSON AND A TAG, because what this dial moves is the writing under a face -- the name and
+	// the label under it -- and not the writing along a line, which the `fa-font` beside it has.
+	name: "fas fa-user-tag",
 });
 
 /**
@@ -342,14 +372,6 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// Whether the reader's last press on the page landed in this window, which is what stands
 		// in for focus when Ctrl+Z arrives; see `_wireHistoryKeys`.
 		this._pointerWithin = false;
-		// Whose tags window stands open, by person id, so a second press on the pen while it does
-		// opens nothing more; see `_tagPerson`.
-		this._tagging = new Set();
-		// Which control the next REPAINT is to put the reader's focus back onto, as a selector: what
-		// `_focusOnRender` is to a render, this is to `_repaintBoard`, which replaces the board's
-		// markup and the focused control with it. Null on an ordinary repaint, which must never move
-		// anybody's focus. See `_tagPerson`.
-		this._focusOnRepaint = null;
 		// The board inside `_root`, remembered by `_boardEl()`, and the root it was found in.
 		this._board = null;
 		this._boardRoot = null;
@@ -383,6 +405,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// the two write different patches to different halves of the graph -- and one map holding
 		// both would be one place to ask "is this a node or a line?" on every flush for ever.
 		this._pendingSeat = new Map();
+		// The history this view's undo buttons are listening to, and how to stop. See `_watchHistory`.
+		this._watching = null;
 		// WHO THIS READER HAS SELECTED on the board in front of them, to move together. Theirs
 		// alone and in memory only, like the lit web beside it: a selection is where somebody's
 		// hands are, not a fact about the map, and another player's would be no use to them. The
@@ -398,6 +422,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// outline the bar is marked on, a group made a moment ago waiting for the repaint that will
 		// draw it (like `_pendingPick` for a line). All this reader's own, none of it written anywhere.
 		this._groupBar = null;
+		// The bar a person's label raises. See utils/relmap-person-bar.js.
+		this._personBar = null;
 		this._litGroup = null;
 		this._pickedGroupParts = [];
 		// Its four resize corners, the size they were last drawn at, and one resize's worth of preview.
@@ -733,6 +759,37 @@ export class RelationshipMapWindow extends RelmapDialog {
 				take: localize("RELMAP.groups.takeSelected"),
 				drop: localize("RELMAP.groups.drop"),
 			},
+			// THE LABEL UNDER A PERSON'S NAME, and the one field its bar holds. One name for both: the
+			// bar holds nothing but that field, so the group and the field answer to the same words.
+			personBar: {
+				label: localize("RELMAP.subtitle.field"),
+				placeholder: localize("RELMAP.subtitle.placeholder"),
+				maxLength: RELMAP_SUBTITLE_MAX,
+				// THE CHIPS' WORDS. `edit` and `off` are PATTERNS with `{chip}` left in: the bar fills in
+				// which chip, and carries no i18n of its own.
+				chips: {
+					add: localize("RELMAP.chips.add"),
+					newChip: localize("RELMAP.chips.newChip"),
+					menuHeading: localize("RELMAP.chips.menuHeading"),
+					edit: localize("RELMAP.chips.edit"),
+					off: localize("RELMAP.chips.off"),
+					name: localize("RELMAP.chips.name"),
+					namePlaceholder: localize("RELMAP.chips.namePlaceholder"),
+					nameMax: RELMAP_CHIP_NAME_MAX,
+					colour: localize("RELMAP.chips.colour"),
+					colourOwn: localize("RELMAP.chips.colourOwn"),
+					icon: localize("RELMAP.chips.icon"),
+					preview: localize("RELMAP.chips.preview"),
+					save: localize("RELMAP.chips.save"),
+					cancel: localize("RELMAP.chips.cancel"),
+					delete: localize("RELMAP.chips.delete"),
+					// "No icon" leads the grid; its key is the empty icon a chip stores.
+					icons: [
+						{ key: "", glyph: "fa-ban", name: localize("RELMAP.chips.noIcon") },
+						...RELMAP_CHIP_ICONS.map(key => ({ key, glyph: key, name: localize(`RELMAP.chips.icons.${key}`) })),
+					],
+				},
+			},
 			// ⚠ THE VISIBLE NAMES ONLY. What each of these two can actually do, and what it would
 			// take back, is written onto the elements by `_paintHistory` — the history is this
 			// reader's own and is not part of the document a render was built from. They come up
@@ -838,7 +895,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// HOW HEAVILY THIS READER WANTS IT DRAWN, in three dials. See `_weightDials`, and
 			// relmap/relmap-weights.js for why this is the reader's own and not the map's.
 			weightGroup: localize("RELMAP.weightGroup"),
-			weights: this._weightDials(),
+			// IN TWO RUNS, the names dial and then the line's three, with the rule and the captions
+			// box between them in the template. See `RELMAP_WEIGHT_SPLIT`.
+			...this._weightRuns(),
 			// ⚠ AND THE SAME THREE NUMBERS AS PROPERTIES ON THE ROOT, printed by the template
 			// rather than written by `_paintWeights` after the fact. `activateListeners` measures
 			// the captions the moment this markup lands (`_fitGapsToPaint` reads a real caption's
@@ -890,6 +949,16 @@ export class RelationshipMapWindow extends RelmapDialog {
 	}
 
 	/**
+	 * The dials split where the footer draws its rule: up to and including `RELMAP_WEIGHT_SPLIT`, then
+	 * the rest. The template puts the rule and the captions box between the two.
+	 */
+	_weightRuns(weights = getWeights()) {
+		const dials = this._weightDials(weights);
+		const cut = dials.findIndex(dial => dial.key === RELMAP_WEIGHT_SPLIT) + 1;
+		return { weightsBefore: dials.slice(0, cut), weightsAfter: dials.slice(cut) };
+	}
+
+	/**
 	 * The same three as an inline `style` for the board's root: one custom property apiece, as a
 	 * MULTIPLIER rather than a percentage, which is what every `calc()` in the stylesheet wants.
 	 *
@@ -907,6 +976,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// the source and the sheet reads it; the `22px` still in the stylesheet is only the
 			// fallback for a board rendered before this property lands.
 			`--relmap-head-px:${RELMAP_HEAD_PX}px`,
+			// AND THE SIZES A PERSON'S NAME, LABEL AND CHIPS ARE DRAWN AT, for the same reason: the
+			// geometry measures every outline round them, so its numbers are the ones drawn.
+			...relmapSizeProperties().map(([name, value]) => `${name}:${value}`),
 			...RELMAP_WEIGHTS.map(key => `--relmap-${key}-scale:${scales[key]}`),
 		].join(";");
 	}
@@ -931,7 +1003,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * spreader's obstacle list, the cast the partial walks) reads it, so they cannot come apart.
 	 */
 	_plan(graph = null) {
-		const whole = graph ?? readGraph(this.boardDoc);
+		const whole = graph ?? this._withLanding(readGraph(this.boardDoc));
 		return {
 			graph: whole,
 			// THE SHEET GROWS WITH THE CAST, so a portrait's radius is not a constant: it is
@@ -976,7 +1048,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 */
 	_personOnMap(graph, id) {
 		const node = graph?.nodes?.[id];
-		const actor = node?.uuid ? fromUuidSync(node.uuid, { strict: false }) : null;
+		const actor = node?.uuid ? resolveSync(node.uuid) : null;
 		return {
 			id,
 			name: actor?.name || node?.name || localize("RELMAP.someone"),
@@ -1089,19 +1161,35 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// with NO uuid is a different thing entirely — somebody typed onto the board who never
 			// had an actor — and neither reading may catch it.
 			const gone = !!node.uuid && !actor;
-			// THE TAGS ARE PART OF WHAT THE FACE SAYS, in the tooltip and the accessible name alike:
-			// "Lord Elroy, The Iron Knight". A reader on a magnifier sees the lines under the name;
-			// one on a screen reader would otherwise never hear of them.
-			const named = node.tags.length ? format("RELMAP.namedAs", { name, tags: listOf(node.tags) }) : name;
+			// THE LABEL UNDER THE NAME ("Iron Knight", "Deceased"), off THIS MAP'S node and never the
+			// actor's: it is what the person is on this board. Folded into the face's sentence too, so a
+			// reader who cannot see the chip under it still hears it.
+			const subtitle = node.subtitle ?? "";
+			// AND THE CHIPS ("Dead"), in the rows they are drawn in, which are the rows every outline
+			// reaches round: laid out once by the read (relmap-store.js `normalizeGraph`, `chipLaid`).
+			// Spoken with the name too: "Simon, Deceased, Dead". The rows and then the hidden ones are
+			// the worn order.
+			const laid = node.chipLaid ?? NO_CHIPS;
+			const worn = [...laid.rows.flat(), ...laid.hidden];
+			const called = [name, subtitle, ...worn.map(chip => chip.name)].filter(Boolean).join(", ");
 			return {
 				id,
 				name,
-				// The tags under the name, as stored: text somebody at this table typed, which the
-				// partial escapes on the way out. And the side of the face the plate of name and
-				// tags stands on, one of the store's four words, which the partial puts on the node
-				// for the stylesheet to place by.
-				tags: node.tags,
-				side: node.side,
+				subtitle,
+				// Each row as its pills' markup, built by the one builder the person bar uses too, and
+				// printed by the template as it stands (escaped here, once).
+				chipRows: laid.rows.map(row => row.map(chip => chipPillHtml(chipPaint(chip, paint))).join("")),
+				chipMore: laid.hidden.length
+					? {
+						label: format("RELMAP.chips.more", { count: laid.hidden.length }),
+						tooltip: laid.hidden.map(chip => chip.name).join(", "),
+					}
+					: null,
+				// The button's spoken name REPLACES its visible words, so it says them too, ahead of what
+				// a press does: "Iron Knight. Change the label under Lord Elroy".
+				subtitleLabel: subtitle
+					? `${subtitle}. ${format("RELMAP.subtitle.edit", { name })}`
+					: format("RELMAP.subtitle.edit", { name }),
 				left: node.x,
 				top: node.y,
 				img: portrait.src,
@@ -1124,13 +1212,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 				// note somewhere the reader is not looking. It matters most on the deleted-actor
 				// sentence, which is exactly the face somebody is about to want gone.
 				tooltip: withHint(gone
-					? format("RELMAP.deletedActor", { name: named })
+					? format("RELMAP.deletedActor", { name: called })
 					: actor
-						? format("RELMAP.openSheet", { name: named })
-						: named),
+						? format("RELMAP.openSheet", { name: called })
+						: called),
 				linkLabel: format("RELMAP.linkFrom", { name }),
 				removeLabel: format("RELMAP.removeLabel", { name }),
-				tagsLabel: format("RELMAP.tags.edit", { name }),
 			};
 		});
 
@@ -1246,7 +1333,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const outlines = groupShapes(graph, board, { wordScale: scales.word, unnamed });
 		this._drawn.groups = new Map(outlines.map(shape => [shape.id, shape]));
 		const groups = outlines.map(({ id, group, members, outline, words: named }) => {
-			const who = listOf(members.map(member => this._nameOf(graph, member)));
+			const who = members.map(member => this._nameOf(graph, member)).join(", ");
 			const said = format("RELMAP.groups.says", { name: named, who });
 			return {
 				id, ...inkPaint(group.ink, paint), d: outline.d,
@@ -1272,6 +1359,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 			headD: ROUTE_HEAD_PATH,
 			headBox: ROUTE_HEAD_VIEWBOX,
 			linkHint: localize("RELMAP.linkHint"),
+			addSubtitle: localize("RELMAP.subtitle.add"),
 		};
 	}
 
@@ -1291,7 +1379,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * selection changing under a group).
 	 */
 	get _bars() {
-		return [this._tieBar, this._groupBar].filter(Boolean);
+		return [this._tieBar, this._groupBar, this._personBar].filter(Boolean);
 	}
 
 	/** Raise one bar on one thing, putting every other bar down first. See `_bars`. */
@@ -1326,6 +1414,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._teardownDrag = null;
 		this._tieBar = null;
 		this._groupBar = null;
+		this._personBar = null;
 
 		// Adopted BEFORE the early return. Left until after it, a render that somehow produced no
 		// viewport would leave this pointing at the PREVIOUS render, and the next live update would
@@ -1448,6 +1537,24 @@ export class RelationshipMapWindow extends RelmapDialog {
 			canEdit: () => this.canEdit,
 		});
 
+		// AND THE LABEL UNDER A PERSON'S NAME: one field, written as one step per burst of typing.
+		this._personBar = new RelmapPersonBar(root, {
+			surface: () => this._surface,
+			personAt: id => this._personAt(id),
+			onField: (id, fields) => this._writeSubtitle(id, fields),
+			canEdit: () => this.canEdit,
+			// AND THEIR CHIPS: the menu's list, and the four writes the bar asks for.
+			library: () => chipLibrary(readGraph(this.boardDoc), { doc: this.boardDoc }),
+			onWear: (id, chip) => this._wearChip(id, chip),
+			onTakeOff: (id, chipId) => this._takeOffChip(id, chipId),
+			onSaveChip: (id, chipId, def) => this._saveChip(id, chipId, def),
+			onDropChip: chipId => this._dropChip(chipId),
+			onNudged: (chose, used) => ui.notifications?.info?.(
+				format(inkMovedKey(chose, used, "RELMAP.chips"), { chose, used }),
+			),
+			onNeedName: () => ui.notifications?.warn?.(localize("RELMAP.chips.needName")),
+		});
+
 		this._teardownDrag = wireRelmapDrag(root, {
 			surface: this._surface,
 			// Asked per gesture, as `canEdit` is asked afresh everywhere: ownership can change under an open
@@ -1499,6 +1606,18 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// reader clicks around on while talking, so letting go has to be as easy as taking
 			// hold: an X on the bar would be the only way out of a thing that opens on a click.
 			onPickNone: () => { this._closeBars(); },
+			// And by Escape on the board while one is up, which otherwise went on to close the window.
+			barOpen: () => this._bars.some(bar => bar.isOpen),
+			// ⚠ A PRESS OVER, HOWEVER IT ENDED, lets through the repaint `_isBusy` held back for it. The
+			// pointerup flush in `activateListeners` cannot answer for all of them: a press let go of off
+			// the board never sends this view a pointerup at all. On a timeout like the others, so whatever the release
+			// itself writes or opens runs first, on the markup it was pressed on.
+			onPressEnd: () => setTimeout(() => this._flushPendingSync(), 0),
+			// THE LABEL UNDER SOMEBODY'S NAME, clicked: its bar goes up, and the focus comes back to the
+			// label on the way out, FOUND THEN because a repaint replaces it.
+			onPickPerson: (id, from) => {
+				this._openBar(this._personBar, id, { returnTo: from ? () => this._subtitleEl(id) : null });
+			},
 			// ⚠ THE GROUPS. A group is moved by carrying its members, so the drag layer asks who they
 			// are and then runs the ordinary group move; it never learns where an outline is.
 			groupMembers: id => this._groupMembersOf(id),
@@ -1521,7 +1640,6 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// exists. A right press asks for the person's trash can; the next ordinary click
 			// anywhere puts it away again.
 			onArm: id => this._armRemove(id),
-			onTags: id => this._tagPerson(id),
 		});
 
 		this._teardownDrag?.resumeAim?.(heldAim);
@@ -1569,7 +1687,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 
 		// A repaint held back while a drag or an edit was in the way, let through the moment it
 		// clears. Both on a timeout so the handlers that END the obstruction run first: the drag
-		// layer takes its class off in its own pointerup, which is bound before this one.
+		// layer ends its press in its own pointerup, which is bound before this one. (A press ended
+		// any other way says so itself: see `onPressEnd`.)
 		const flush = () => setTimeout(() => this._flushPendingSync(), 0);
 		root.addEventListener("focusout", flush);
 		view.addEventListener("pointerup", flush);
@@ -1580,6 +1699,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._wireLighting(board);
 		this._wireDrop(view);
 		this._wireSync();
+		// Told whenever this board's history moves, from this view or any other. See `_watchHistory`.
+		if (!this._closed) this._watchHistory();
 		// What this reader can take back lives on their own machine, not in the markup a render was
 		// built from, and a fresh bar comes up with both buttons enabled until it is told otherwise.
 		this._paintHistory();
@@ -1769,40 +1890,35 @@ export class RelationshipMapWindow extends RelmapDialog {
 		on("createJournalEntryPage", page => onPageChange(page, false));
 		on("deleteJournalEntryPage", page => onPageChange(page, true));
 
-		// ── And the people themselves ──────────────────────────────────────────────────────────
+		// ── And the people on it, who are ACTORS and are read live ────────────────────────────────
 		//
-		// THE BOARD DRAWS THE LIVE ACTOR'S NAME AND PICTURE (`_personOnMap`), and until now it
-		// listened for nothing an actor did. So a rename in the Actors sidebar left the old name on
-		// every open board until something else repainted it, and a new portrait or a deleted actor's
-		// dashed rim lagged the same way. Only a change to what the board DRAWS, and only for a board
-		// that holds that actor: every actor write in the world arrives here, and most of them are
-		// hit points. `repaint` is the debounced sync above, so a bulk rename is one repaint and a
-		// board mid-drag defers it (`_isBusy`).
+		// A face's name, picture and crop come off the actor at every paint (`_personOnMap`), but
+		// nothing used to ASK for a paint when an actor changed: a character renamed, or given new art,
+		// kept their old face and name on an open map until somebody happened to touch the map itself.
+		// So a change to anybody standing on the board in front of this reader repaints it, and only
+		// that: every actor write in the world arrives here (hit points included), so the fields are
+		// asked about first and the board is walked only for a change that could show on a face.
+		// ⚠ MID-RENDER COUNTS. A rename landing after `getData` read the actors and before the render
+		// finished would otherwise be dropped; asked for, `sync` holds it until the render is done.
+		// ⚠ ASKED OF THE LAST PAINT (`_drawn`), not of a fresh `readGraph`: this runs on every face change
+		// and every actor made or rubbed out in the world, and normalizing the board for each is the
+		// whole cost of a repaint's first step spent on a question the paint already answers. Somebody
+		// in the document and not yet in the paint has a repaint already coming, which reads the actor
+		// fresh. Read off the document only before anything has been painted.
+		const onBoard = actor => {
+			const uuid = actor?.uuid;
+			if (!uuid || !(this.rendered || this._isMidRender())) return false;
+			const graph = this._drawn?.graph ?? readGraph(this.boardDoc);
+			return Object.values(graph?.nodes ?? {}).some(node => node.uuid === uuid);
+		};
 		on("updateActor", (actor, changed) => {
-			if (!("name" in (changed ?? {})) && !("img" in (changed ?? {}))) return;
-			if (this._holdsActor(actor?.uuid)) repaint();
+			if (!changedSavedFace(changed)) return;
+			if (onBoard(actor)) repaint();
 		});
-		on("deleteActor", actor => {
-			if (this._holdsActor(actor?.uuid)) repaint();
-		});
-		// AND ONE MADE, for the actor who comes back under their old id: an adventure imported again
-		// to reset it, a compendium imported with its ids kept. The board had drawn them gone -- the
-		// dashed rim, the stored name and picture -- and nothing else tells it they are back.
-		on("createActor", actor => {
-			if (this._holdsActor(actor?.uuid)) repaint();
-		});
-	}
-
-	/**
-	 * Whether somebody on the board this window is showing stands for this actor.
-	 *
-	 * One graph read per open window on every actor write in the world, which is the price of a
-	 * board that follows a rename; the hooks that ask have already thrown out every write that
-	 * changes nothing the board draws.
-	 */
-	_holdsActor(uuid) {
-		if (!uuid) return false;
-		return Object.values(readGraph(this.boardDoc)?.nodes ?? {}).some(node => node.uuid === uuid);
+		// Deleted, the face goes to its dashed "no longer in this world" look; restored by an undo, it
+		// comes back. Both are the same question about who is on the board.
+		on("deleteActor", actor => { if (onBoard(actor)) repaint(); });
+		on("createActor", actor => { if (onBoard(actor)) repaint(); });
 	}
 
 	/**
@@ -1870,7 +1986,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const board = this._boardEl();
 		if (!board) return;
 		const plan = this._plan();
-		board.innerHTML = await this._renderBoard(plan);
+		const html = await this._renderBoard(plan);
+		// ⚠ WHAT HAD THE FOCUS, taken down AFTER the await and just before the markup goes: the focus can
+		// move while the template renders. See `_focusKeyIn`.
+		const focused = this._focusKeyIn(board);
+		board.innerHTML = html;
+		this._refocus(board, focused);
 		// The captions exist now, so the gaps cut for them can stop being guesses.
 		this._fitGapsToPaint();
 		// The sheet itself may have changed size, because somebody else put another person on it.
@@ -1924,14 +2045,30 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// is still on the board. See `_groupNameEl`.
 			this._pickGroup(pick, { focusName: true, returnTo: () => this._groupNameEl(pick) });
 		}
-		// A control a window of this window's gave the focus back to, redrawn by this paint: found
-		// again by its selector, as `_takeFocusBack` finds one after a render.
-		if (this._focusOnRepaint) {
-			const want = this._focusOnRepaint;
-			this._focusOnRepaint = null;
-			board.querySelector?.(want)?.focus?.();
-		}
 		this._paintChrome(plan);
+	}
+
+	/**
+	 * WHICH THING ON THE BOARD HAS THE KEYBOARD, by what it is about rather than by the element, which
+	 * a repaint throws away. Null when the focus is anywhere else.
+	 *
+	 * ⚠ WITHOUT THIS EVERY REPAINT DROPPED THE FOCUS ON <body>: the reader's own arrow-key nudge being
+	 * written, Enter keeping a label, any change from across the table. The next Delete, Space or arrow
+	 * then went to Foundry's canvas, where Delete takes the GM's selected tokens.
+	 */
+	_focusKeyIn(board) {
+		const active = board?.ownerDocument?.activeElement;
+		if (!active || active === board || !board.contains?.(active)) return null;
+		for (const attr of FOCUS_KEYS) {
+			const value = active.getAttribute?.(attr);
+			if (value) return { attr, value };
+		}
+		return null;
+	}
+
+	/** Give the keyboard back to the same thing in the new markup, if it is still on the board. */
+	_refocus(board, key) {
+		if (key) elementWith(board, key.attr, key.value)?.focus?.({ preventScroll: true });
 	}
 
 	/**
@@ -2322,8 +2459,39 @@ export class RelationshipMapWindow extends RelmapDialog {
 	async _ensurePage() {
 		if (this._pagesReady) return;
 		this._pagesReady = true;
+		// ⚠ ONE PASS PER MAP ON THIS CLIENT, NOT PER WINDOW: two windows of this class can be open on
+		// one map. A pass already running for this map is waited on instead. See `seedMap`.
+		await seedMap(this._entryId ?? this.entry?.id ?? "", () => this._seedPages());
+	}
+
+	/** The pass itself, run once per map at a time: see `_ensurePage`. */
+	async _seedPages() {
 		try { await ensureFirstMapPage(this.entry); }
 		catch (err) { console.warn("Relationship Map | relationship map could not be given its first page", err); }
+		// AND THE LINES NOTHING CAN BRING BACK, rubbed out of the flag: one end gone in a race between
+		// two players, hidden on every read and kept for ever. See `pruneDeadPatch` for why only lines.
+		try { await this._pruneDead(); }
+		catch (err) { console.warn("Relationship Map | relationship map could not tidy its boards", err); }
+	}
+
+	/**
+	 * One write per board that carries dead lines, by the primary GM only, never through the undo.
+	 *
+	 * ALL SENT AT ONCE, since every board is its own document, through the same writer every other
+	 * write to many boards uses (relmap-faces.js `writeBoards`): one board refusing is warned about and
+	 * still leaves the rest tidied.
+	 */
+	async _pruneDead() {
+		if (!isPrimaryGM()) return;
+		const writes = [];
+		// Through `everyBoard`, so a version 1 map, whose board is the entry's own flag, is tidied too.
+		for (const page of everyBoard(this.entry ? [this.entry] : [])) {
+			if (!page.isOwner) continue;
+			// ⚠ THE RAW FLAG, not `readGraph`, which has already hidden what is to be rubbed out.
+			const prune = pruneDeadPatch(page.getFlag(MODULE_ID, RELMAP_FLAG));
+			if (prune) writes.push([page, prune]);
+		}
+		await writeBoards(writes, { why: "to tidy away its dead lines" });
 	}
 
 	/**
@@ -3088,14 +3256,15 @@ export class RelationshipMapWindow extends RelmapDialog {
 	/**
 	 * Is this a moment a repaint would interrupt?
 	 *
-	 * The live drag is read off the CLASS the drag layer sets rather than a flag mirrored here.
-	 * One source of truth: a flag would have to be cleared on every one of the four ways a drag can
-	 * end, and the one that got missed would wedge the board's live updates off for good with no
-	 * sign of why.
+	 * A press held on the board is ASKED OF THE DRAG LAYER (`pressing`) rather than a flag mirrored
+	 * here. One source of truth: a flag would have to be cleared on every one of the ways a press can
+	 * end, and the one that got missed would wedge the board's live updates off for good with no sign
+	 * of why. And the whole press, not only the drag it may become: a repaint landing between the
+	 * press and the drag threshold replaced the portrait the drag was about to carry. The layer says
+	 * when the press is over (`onPressEnd`), which is what lets the held repaint through.
 	 */
 	_isBusy() {
-		const board = this._boardEl();
-		if (board?.classList.contains("is-dragging")) return true;
+		if (this._teardownDrag?.pressing?.()) return true;
 		// A nudge not written yet is the same kind of obstruction: a repaint would redraw the
 		// portrait at the spot the document still holds, undoing the keys already pressed.
 		if (this._pendingNudge.size) return true;
@@ -3163,8 +3332,22 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 *        about. See below.
 	 * @param {object} [options.graph]  the board as the caller has JUST read it, in the same breath
 	 *        (nothing awaited in between), so it is not normalized a second time. Read here otherwise.
+	 * @returns {Promise<boolean>}  whether the write landed.
 	 */
-	async _write(patch, { announce = "", label = "", coalesce = "", remember = true, onto = null, graph: read = null } = {}) {
+	_write(patch, options) {
+		// ⚠ EVERY WRITE IS KEPT UNTIL IT LANDS, and kept HERE because every edit comes through here: a
+		// bar's field, a drag, a nudge, a line drawn or rubbed out. The undo needs it as well as the
+		// flushes it asks for. Pressing the footer's Undo blurs a bar's field first, and the blur's flush
+		// starts the write and marks the words saved; the undo's own flush then had nothing left to
+		// write, peeked at the step BEFORE the label, took that back, and then the label landed and
+		// emptied the redo stack. Taken in the same breath as the call, before anything is awaited, and
+		// kept by the BOARD'S history, so an undo in another window on this board waits for it too.
+		const history = this._history;
+		return history.track(this._writeNow(patch, options));
+	}
+
+	/** The write itself, once `_write` has taken note of it. */
+	async _writeNow(patch, { announce = "", label = "", coalesce = "", remember = true, onto = null, graph: read = null } = {}) {
 		if (!patch) return false;
 		const doc = this.boardDoc;
 		// ⚠ NO BOARD, NO WRITE, AND NOTHING SAID. `applyPatch` refuses a null document anyway, but only
@@ -3185,7 +3368,13 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// step). Asked of the board the write is about to land on, in the same breath.
 		// A write about SEVERAL (`ids`, a group moved together) is refused the same way if any one of
 		// them has gone; `_moveNodes` leaves the missing out before it asks, so this is a rail.
-		if (onto && !(onto.ids ?? [onto.id]).every(id => graph[onto.kind]?.[id])) return false;
+		if (onto && !(onto.ids ?? [onto.id]).every(id => graph[onto.kind]?.[id])) {
+			// ⚠ AND THE REPAINT THAT TOOK THEM OFF IS LET THROUGH. It was most likely held back by this very
+			// write (a bar holding words counts as busy), and nothing else would flush it until the focus
+			// left the board: the gone face and its open bar stood there, refusing every keystroke.
+			this._flushPendingSync();
+			return false;
+		}
 		const change = remember ? describeWrite(graph, patch) : null;
 		// Announced BEFORE the write. The write repaints the board and takes the live region's
 		// neighbours with it; announcing afterwards can land on a node already replaced.
@@ -3196,13 +3385,13 @@ export class RelationshipMapWindow extends RelmapDialog {
 			this.reportWriteFailure(localize("RELMAP.noun"), err);
 			return false;
 		}
+		// Every view of this board repaints its buttons off the history's own word that it moved.
 		if (change) {
 			historyFor(doc).record({
 				...change,
 				label: label || localize("RELMAP.history.change"),
 				coalesce,
 			});
-			this._paintHistory();
 		}
 		return true;
 	}
@@ -3257,15 +3446,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 */
 	async _stepHistory(way) {
 		if (!this.canEdit) return false;
-		// ⚠ ONE STEP AT A TIME. A step PEEKS its entry, awaits a write to the document, and only
-		// then commits it. Two of them overlapping would both peek the SAME entry, apply the same
-		// reversal twice and commit twice — taking one change back and throwing a second away
-		// unread. Two presses land that close together easily enough: a double-press on the tool,
-		// or a held key on a board whose write is waiting on the network.
+		// ⚠ ONE STEP AT A TIME, guarded by the HISTORY, which every view of this board shares (`step`
+		// answers false while one is under way: see `RelmapHistory#step`). And by this window as well, for
+		// a step still in flight on the board the reader has just left by the tab strip: the history in
+		// front of them is another one.
 		if (this._stepping) return false;
 		this._stepping = true;
 		try {
-			return await this._stepHistoryNow(way);
+			return await this._history.step(() => this._stepHistoryNow(way));
 		} finally {
 			this._stepping = false;
 		}
@@ -3280,6 +3468,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// flight, and leaving the board right while the two stacks were wrong. And a group's name,
 		// held back the same way: every bar, one after the other, each awaited before the next.
 		for (const bar of this._bars) await bar.flush();
+		// AND EVERY WRITE STARTED A MOMENT AGO AND NOT BACK YET, the one the blur of the Undo press
+		// itself started included: see `_write`.
+		await this._history.landed();
 		// ⚠ AND THE ARROW KEYS' MOVES, FOR THE SAME REASON. A nudge or a caption slide is held for a breath
 		// after the last key (NUDGE_COMMIT_MS), and an undo pressed inside that breath peeked at the change
 		// BEFORE it -- took that one back instead -- and then the nudge landed, recorded itself and emptied
@@ -3299,7 +3490,6 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// at the top of the stack refusing to do anything every time it is pressed.
 			commit();
 			ui.notifications?.info?.(localize("RELMAP.history.gone"));
-			this._paintHistory();
 			return false;
 		}
 		const said = format(`RELMAP.history.${way}Done`, { what: entry.label });
@@ -3308,7 +3498,6 @@ export class RelationshipMapWindow extends RelmapDialog {
 		if (!await this._write(patch, { announce: said, remember: false })) return false;
 		commit();
 		ui.notifications?.info?.(said);
-		this._paintHistory();
 		return true;
 	}
 
@@ -3391,6 +3580,24 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// reaching core's own keybindings is core's undo of the last canvas operation.
 		ev.stopPropagation();
 		this._stepHistory(key === "y" || ev.shiftKey ? "forward" : "back");
+	}
+
+	/**
+	 * LISTEN TO THIS BOARD'S HISTORY, so the buttons follow every change to it: one made here, and one
+	 * made or taken back in another window open on the same board. Asked on every render, which is what every move to another board is, and moved over
+	 * to that board's history when it is a different one. See `RelmapHistory`.
+	 */
+	_watchHistory() {
+		const history = this._history;
+		if (this._watching?.history === history) return;
+		this._unwatchHistory();
+		this._watching = { history, stop: history.subscribe(() => this._paintHistory()) };
+	}
+
+	/** And stop, for a view that is closing. */
+	_unwatchHistory() {
+		this._watching?.stop();
+		this._watching = null;
 	}
 
 	/**
@@ -3521,17 +3728,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 	_beginPreview(ids) {
 		const board = this._boardEl();
 		if (!board) return null;
-		const whole = readGraph(this.boardDoc);
-		const moving = ids.filter(id => whole.nodes[id]);
+		const read = readGraph(this.boardDoc);
+		const moving = ids.filter(id => read.nodes[id]);
 		if (!moving.length) return null;
 		// ⚠ WHERE THE ARROW KEYS HAVE PUT PEOPLE, AND THE DOCUMENT HAS NOT HEARD YET. Those portraits are
 		// painted at their unwritten spots (`_nudgeNode`), so a line from one of them drawn off the
 		// document would start where that face USED to be -- and a group walked by the arrow keys is
-		// nothing but such lines. The same two maps `nodeAt` answers from, oldest first.
-		for (const [id, at] of [...this._landingNudge, ...this._pendingNudge]) {
-			const node = whole.nodes[id];
-			if (node) { node.x = at.x; node.y = at.y; }
-		}
+		// nothing but such lines.
+		const whole = this._withLanding(read, { pending: true });
 		// ONE PLAN PER GESTURE. `_plan` reads the document when it is not given a graph, and asking
 		// it once is the entire point of gathering this here.
 		//
@@ -3639,6 +3843,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 		}
 		if (!Object.keys(spots).length) return;
 		this._previewMoves(spots);
+		// AND THEIR LABEL'S BAR WITH THEM, which otherwise stayed where they had been until the write came
+		// back. `_personAt` reads the unwritten nudge (`_nodeAt`).
+		const bar = this._personBar;
+		if (bar?.isOpen && bar.id in spots) bar.refresh();
 		this._commitNudge();
 	}
 
@@ -3659,10 +3867,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// timer, and writing only the second would put the first back where the document still has
 		// it — in front of somebody who watched themselves move it.
 		//
-		// ⚠ AND EACH IS HELD AS "LANDING" UNTIL THE SERVER HAS IT. The document does not hear about a write
-		// until the round trip is over, and the next arrow key asks where the portrait is (`nodeAt`):
-		// answered off the document in that breath, a reader who paused and walked on found the portrait
-		// back where the pause had started. Let go only where no later nudge has replaced it since.
+		// ⚠ AND EACH IS HELD AS "LANDING" UNTIL THE SERVER HAS IT (`_moveNodes` holds it, in the same breath
+		// as the write). The document does not hear about a write until the round trip is over, and the
+		// next arrow key asks where the portrait is (`nodeAt`): answered off the document in that breath, a
+		// reader who paused and walked on found the portrait back where the pause had started.
 		//
 		// ⚠ ONE WRITE PER PRESS THAT MOVED THEM, which is one step of the undo each. A selection walked
 		// across the board by the arrow keys is one move of several people, and taking it back one person
@@ -3671,19 +3879,15 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// after the other inside one wait are two moves, and folded together they would be taken back
 		// together, and fold with neither one's own run: each keeps its own key (`node:<id>`), as it would
 		// have with a pause between them. `_nudgeBatch` remembers which press last moved each person.
-		const landing = this._landingNudge;
 		const batches = new Map();
 		for (const [id, at] of pending) {
-			landing.set(id, at);
 			const key = this._nudgeBatch?.get(id) ?? `node:${id}`;
 			this._nudgeBatch?.delete(id);
 			if (!batches.has(key)) batches.set(key, {});
 			batches.get(key)[id] = at;
 		}
 		const writes = [...batches].map(([coalesce, moves]) => this._moveNodes(moves, { coalesce }));
-		const write = Promise.all(writes).then(done => done.every(Boolean)).finally(() => {
-			for (const [id, at] of pending) if (landing.get(id) === at) landing.delete(id);
-		});
+		const write = Promise.all(writes).then(done => done.every(Boolean));
 		// A repaint that was held back while the keys were coming lands now.
 		this._flushPendingSync();
 		return write;
@@ -3876,7 +4080,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// it was over is not on the board being arrived at.
 		for (const bar of this._bars) bar.flush();
 		this._groupBar?.close();
+		this._personBar?.close();
 		this._pendingGroupPick = "";
+		this._pendingPick = "";
 		this._standDownForAnotherBoard();
 	}
 
@@ -3894,6 +4100,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		this._preview = null;
 		for (const bar of this._bars) bar.discard();
 		this._pendingGroupPick = "";
+		this._pendingPick = "";
 		this._standDownForAnotherBoard();
 	}
 
@@ -3954,6 +4161,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const here = graph?.nodes ?? {};
 		let patch = null;
 		const ids = [];
+		const landing = this._landingNudge;
+		const spots = [];
 		for (const [id, at] of Object.entries(moves ?? {})) {
 			if (!here[id]) continue;
 			// Reach and not the sheet: see `RELMAP_REACH_MIN`. The same rule `nodePatch` holds it
@@ -3967,12 +4176,40 @@ export class RelationshipMapWindow extends RelmapDialog {
 			}
 			patch = { ...patch, ...nodePatch(id, spot) };
 			ids.push(id);
+			// HELD AS LANDING until the server has it, a drag's drop as much as an arrow key's: see
+			// `_withLanding`. Let go only where no later move has replaced it since.
+			landing.set(id, spot);
+			spots.push([id, spot]);
 		}
 		if (!ids.length) return false;
 		const label = ids.length === 1
 			? localize("RELMAP.history.moved")
 			: format("RELMAP.history.movedMany", { count: ids.length });
-		return this._write(patch, { label, coalesce, onto: { kind: "nodes", ids }, graph });
+		try {
+			return await this._write(patch, { label, coalesce, onto: { kind: "nodes", ids }, graph });
+		} finally {
+			for (const [id, spot] of spots) if (landing.get(id) === spot) landing.delete(id);
+		}
+	}
+
+	/**
+	 * The board as read, with everybody whose move is still on its way to the server put where it
+	 * sends them.
+	 *
+	 * ⚠ A REPAINT IN THAT BREATH DREW THE DOCUMENT AS IT WAS. A drag's release lets a held repaint
+	 * through (another player's write, or a bar's own timed one) before the drop's write has come back,
+	 * so the face, its lines and the label bar flashed back to where the drag began. A copy: the graph
+	 * read is the caller's.
+	 *
+	 * `pending` puts the arrow keys' moves not yet SENT on top as well: the same two maps `_nodeAt`
+	 * answers from, oldest first.
+	 */
+	_withLanding(graph, { pending = false } = {}) {
+		const moves = pending ? [...(this._landingNudge ?? []), ...(this._pendingNudge ?? [])] : [...(this._landingNudge ?? [])];
+		if (!moves.length || !graph?.nodes) return graph;
+		const nodes = { ...graph.nodes };
+		for (const [id, at] of moves) if (nodes[id]) nodes[id] = { ...nodes[id], x: at.x, y: at.y };
+		return { ...graph, nodes };
 	}
 
 	/**
@@ -4115,7 +4352,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 		if (!at) return null;
 		const from = graph.nodes[edge.a];
 		const to = graph.nodes[edge.b];
-		const names = { a: from?.name ?? "", b: to?.name ?? "" };
+		// Live names, as the faces show them: a renamed actor's old name on the arrows read as somebody else.
+		const names = { a: from ? this._nameOf(graph, edge.a) : "", b: to ? this._nameOf(graph, edge.b) : "" };
 		return {
 			edge,
 			// `x` is what decides which way the two one-way arrows point, and it is the SEAT this
@@ -4170,7 +4408,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 */
 	async _createLink(a, b) {
 		if (a === b) return;
-		const graph = readGraph(this.boardDoc);
+		const doc = this.boardDoc;
+		const graph = readGraph(doc);
 		if (!graph.nodes[a] || !graph.nodes[b]) return;
 		const id = foundry.utils.randomID();
 		// ⚠ IN THE PEN THIS MAP IS BEING DRAWN WITH, which is the one thing about a new line that
@@ -4187,7 +4426,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const pen = penFor(this.entry, { size: getLastSize() });
 		const written = await this._write(addEdgePatch(id, { a, b, ...pen }), {
 			announce: format("RELMAP.linked", {
-				a: graph.nodes[a].name, b: graph.nodes[b].name,
+				a: this._nameOf(graph, a), b: this._nameOf(graph, b),
 			}),
 			label: localize("RELMAP.history.linked"),
 		});
@@ -4197,7 +4436,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// existed. Asked now, it would find nothing, refuse to open, and the gesture would end with
 		// a line drawn and no way to say what it is. So the id is left for the repaint the write
 		// has already set off, which is the first moment there is a stroke to float over.
-		if (written) this._pendingPick = id;
+		// ⚠ AND ONLY WHILE THE READER IS STILL ON THAT BOARD. Switched away while the write was out, the
+		// first repaint of the board arrived at went looking for a line it does not have, and put down
+		// whatever bar the reader had raised there to do it.
+		if (written && this._stillOn(doc)) this._pendingPick = id;
 	}
 
 	/**
@@ -4251,6 +4493,122 @@ export class RelationshipMapWindow extends RelmapDialog {
 	_groupNameEl(id) {
 		const board = this._boardEl();
 		return board ? indexGroupParts(board).get(id)?.name ?? null : null;
+	}
+
+	/**
+	 * One person as their label's bar wants them, off the PAINT: the node, and the point under their
+	 * name (board percentages) where the label sits and the bar takes its place. Null when the last
+	 * paint drew nobody of that id.
+	 */
+	_personAt(id) {
+		const graph = this._drawn?.graph;
+		const node = graph?.nodes?.[id];
+		const board = this._drawn?.board;
+		if (!node || !board?.height) return null;
+		// WHERE THEY STAND NOW, an arrow-key nudge not yet written (or not yet back) included: read off
+		// the paint alone, Enter on a label just after a nudge opened the bar where they had been.
+		const spot = this._nodeAt(id, graph) ?? node;
+		return {
+			node,
+			// Under the name as the reader has it sized (`personReach`), which is where the label is drawn.
+			at: { left: spot.x, top: spot.y + (personReach(this._drawn?.scales?.name).subTop / board.height) * 100 },
+			// The top of the face, for a bar with no room below it to sit above the person instead.
+			lift: { left: spot.x, top: spot.y - (RELMAP_NODE_PX / 2 / board.height) * 100 },
+			// What a screen reader hears the bar called: WHOSE label it is, by the name as painted.
+			label: format("RELMAP.subtitle.bar", { name: this._nameOf(graph, id) }),
+			// The chips they wear, in the order the board draws them.
+			chips: chipsWorn(node, graph),
+		};
+	}
+
+	// ── Chips ("Dead", "Noble") ─────────────────────────────────────
+	//
+	// Kept per board and shared between boards by id: see relmap/relmap-chips.js. Each press is its own
+	// step of the undo, never folded: putting a chip on and taking it straight off again are two changes.
+
+	/** Put a chip on somebody, copying its definition onto this board first if it has never had it. */
+	_wearChip(id, chip) {
+		const graph = readGraph(this.boardDoc);
+		return this._write(chipWearPatch(graph, id, chip), {
+			label: localize("RELMAP.history.editedChips"),
+			onto: { kind: "nodes", id }, graph,
+		});
+	}
+
+	/** Take one chip off somebody. The chip stays on the board for the next person. */
+	_takeOffChip(id, chipId) {
+		return this._write(nodeChipsPatch(id, [], [chipId]), {
+			label: localize("RELMAP.history.editedChips"),
+			onto: { kind: "nodes", id },
+		});
+	}
+
+	/**
+	 * The chip form's Save. A chip already here (`chipId`) is changed on this board, then on every
+	 * other board that has it. A new one is put on this person, unless a chip of that name already
+	 * exists anywhere, which is put on them instead: two "Noble"s would be one chip twice in the menu.
+	 */
+	async _saveChip(id, chipId, def) {
+		if (chipId) {
+			const written = await this._write(chipPatch(chipId, def), {
+				label: localize("RELMAP.history.editedChip"),
+			});
+			if (written) await spreadChip(chipId, def, { doc: this.boardDoc });
+			return written;
+		}
+		const named = def.name.toLocaleLowerCase();
+		const twin = chipLibrary(readGraph(this.boardDoc), { doc: this.boardDoc })
+			.find(chip => chip.name.toLocaleLowerCase() === named);
+		// The reader chose a colour and an icon for a chip that turns out to exist already: say so,
+		// or the form closing on a different-looking chip reads as their choice being ignored.
+		if (twin && ((twin.ink ?? "") !== (def.ink ?? "") || (twin.icon ?? "") !== (def.icon ?? ""))) {
+			ui.notifications?.info?.(format("RELMAP.chips.usedTwin", { chip: twin.name }));
+		}
+		return this._wearChip(id, twin ?? { id: foundry.utils.randomID(), ...def });
+	}
+
+	/**
+	 * Delete a chip: off everybody on this board (undoable) and off every other board that has it
+	 * (not). Asked first, saying how far it reaches. False when the reader thought better of it.
+	 */
+	async _dropChip(chipId) {
+		const graph = readGraph(this.boardDoc);
+		const chip = graph.chips[chipId];
+		if (!chip) return false;
+		const elsewhere = chipElsewhere(chipId, { doc: this.boardDoc });
+		const body = [format("RELMAP.chips.deleteBody", { chip: chip.name })];
+		if (elsewhere) body.push(format("RELMAP.chips.deleteElsewhere", { count: elsewhere }));
+		const go = await this._confirm({
+			title: format("RELMAP.chips.deleteTitle", { chip: chip.name }),
+			body: body.join(" "),
+			confirm: localize("RELMAP.chips.deleteYes"),
+			cancel: localize("RELMAP.chips.cancel"),
+			danger: elsewhere > 0,
+		});
+		if (!go) return false;
+		const written = await this._write(dropChipPatch(graph, chipId), {
+			label: localize("RELMAP.history.droppedChip"), graph,
+		});
+		if (written) await spreadChip(chipId, null, { doc: this.boardDoc });
+		return written;
+	}
+
+	/**
+	 * Write what the label bar holds.
+	 *
+	 * ⚠ ITS OWN COALESCE KEY, never `node:<id>`: that is the arrow keys' nudge of one person, and a
+	 * label typed and a nudge made within the fold window would come back as ONE undo step.
+	 */
+	_writeSubtitle(id, fields) {
+		return this._write(nodePatch(id, fields), {
+			label: localize("RELMAP.history.editedPerson"), coalesce: `subtitle:${id}`,
+			onto: { kind: "nodes", id },
+		});
+	}
+
+	/** A person's label on the board as painted NOW, for the focus to go back to. Walked, not built. */
+	_subtitleEl(id) {
+		return elementWith(this._boardEl(), "data-relmap-subtitle", id);
 	}
 
 	/** Who is in a group, off the paint, for the drag layer to carry. */
@@ -4474,8 +4832,11 @@ export class RelationshipMapWindow extends RelmapDialog {
 		if (!shape) return null;
 		const { board } = state;
 		const px = spot => ({ x: (spot.x / 100) * board.width, y: (spot.y / 100) * board.height });
-		// Never smaller than one person's outline, in this shape and at the words the board was drawn at.
-		const min = groupMinSize(shape.group.shape, state.scales?.word);
+		// The graph as painted, read ONCE: this runs every frame of the drag.
+		const graph = this._drawn?.graph ?? readGraph(this.boardDoc);
+		// Never smaller than the biggest of them alone, in this shape, at the words the board was drawn
+		// at, label and all: see `groupFloor`.
+		const min = groupFloor(shape.members.map(member => graph?.nodes?.[member]), shape.group.shape, state.scales?.word);
 		const was = shape.outline.rect;
 		const rect = resizeRect(was, corner, px({ x: at.left, y: at.top }), { square, min });
 		if (!rect) return null;
@@ -4506,11 +4867,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 */
 	_resizeState(id) {
 		if (this._resizePreview?.id === id) return this._resizePreview;
-		const graph = readGraph(this.boardDoc);
-		for (const [node, at] of [...this._landingNudge, ...this._pendingNudge]) {
-			if (graph.nodes[node]) { graph.nodes[node].x = at.x; graph.nodes[node].y = at.y; }
-		}
-		const plan = this._plan(graph);
+		const plan = this._plan(this._withLanding(readGraph(this.boardDoc), { pending: true }));
 		const within = groupsInside(plan.graph.groups ?? {});
 		const unnamed = localize("RELMAP.groups.unnamed");
 		const state = this._resizePreview = {
@@ -4662,13 +5019,15 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const graph = readGraph(doc);
 		const node = graph.nodes[id];
 		if (!node) return;
+		// The name the face shows, which is the live actor's, not the one stored when they were added.
+		const name = this._nameOf(graph, id);
 		const links = Object.values(graph.edges).filter(e => e.a === id || e.b === id).length;
 		const ok = await this._confirm({
 			title: localize("RELMAP.removeTitle"),
 			body: links
-				? format("RELMAP.removeBodyLinks", { name: node.name, count: links })
-				: format("RELMAP.removeBody", { name: node.name }),
-			confirm: format("RELMAP.removeConfirm", { name: node.name }),
+				? format("RELMAP.removeBodyLinks", { name, count: links })
+				: format("RELMAP.removeBody", { name }),
+			confirm: format("RELMAP.removeConfirm", { name }),
 			cancel: localize("RELMAP.removeCancel"),
 			icon: "fa-solid fa-user-minus",
 		});
@@ -4679,87 +5038,9 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const now = readGraph(doc);
 		if (!now.nodes[id]) return;
 		await this._write(dropNodePatch(now, id), {
-			announce: format("RELMAP.removed", { name: node.name }),
-			label: format("RELMAP.history.removed", { name: node.name }),
+			announce: format("RELMAP.removed", { name }),
+			label: format("RELMAP.history.removed", { name }),
 		});
-	}
-
-	/**
-	 * The tags under somebody's name -- "deceased", "The Iron Knight" -- and the side of the face
-	 * the name and tags stand on, asked for in one small window and written at once, as one step.
-	 * Reached from the pen on the face and from a double click on the name (utils/relmap-drag.js),
-	 * which hand over the person's id and nothing else.
-	 *
-	 * ⚠ NOT COALESCED. `record` folds a same-key change made within a moment into one step, which is
-	 * right for an arrow key held down and wrong here: two deliberate Saves a second apart are two
-	 * things the reader did, and Undo should take back one at a time. A Save is one gesture already.
-	 * `onto` is not history either: `_write` reads it to refuse the write when the person has gone
-	 * off the board while the window was up. And `_stillOn`, as the removal asks it: a reader who
-	 * changed boards while the window stood is told why nothing happened.
-	 *
-	 * ⚠ ONE WINDOW PER PERSON. The pen opens one on every click and a double click is two, each a
-	 * DialogV2 of its own at the same spot: the reader saved the top one and found the first under
-	 * it, still showing the old lines, and a second Save wrote those back. `_tagging` holds the id
-	 * while the window stands.
-	 *
-	 * ⚠ ONLY WHAT CHANGED, against what the window opened on. The store writes a leaf at a time so
-	 * that two readers at two leaves both survive (relmap-store.js); an answer that carried both back
-	 * would put the side this reader never touched over the one somebody else chose while the window
-	 * stood. And nothing at all for a Save that changed nothing: Foundry writes no update for an
-	 * empty diff, and a step recorded for it would do nothing on Undo and still have thrown the redo
-	 * stack away. A change to one, the other, or both is one write and one step, as before.
-	 */
-	async _tagPerson(id) {
-		if (this._tagging.has(id)) return;
-		const doc = this.boardDoc;
-		const graph = readGraph(doc);
-		const node = graph.nodes[id];
-		if (!node) return;
-		const name = this._nameOf(graph, id);
-		this._tagging.add(id);
-		let answer;
-		try {
-			answer = await promptForLines({
-				title: format("RELMAP.tags.title", { name }),
-				buttonLabel: localize("RELMAP.tags.go"),
-				lines: node.tags,
-				hint: format("RELMAP.tags.hint", { max: RELMAP_TAGS_MAX }),
-				placeholder: localize("RELMAP.tags.placeholder"),
-				rows: RELMAP_TAGS_MAX,
-				icon: "fa-solid fa-pen",
-				// And where the plate of name and tags stands round the face: the store's four sides
-				// in its order, the stored one checked.
-				choice: {
-					label: localize("RELMAP.tags.where"),
-					name: "relmapSide",
-					value: node.side,
-					options: RELMAP_SIDES.map(side => ({ value: side, label: localize(`RELMAP.tags.side.${side}`) })),
-				},
-			});
-		} finally {
-			this._tagging.delete(id);
-		}
-		// THE READER WAS WORKING IN THIS WINDOW, however the small one closed. Its Save and its radios
-		// stand outside `_root`, so the press on them cleared `_pointerWithin`, and DialogV2 shuts by
-		// taking its element out of the page without handing the focus anywhere: left so, the Ctrl+Z a
-		// reader presses next lands on the body, this window declines it (`_ownsKeystroke`), and core
-		// takes it as the undo of the last thing done on the CANVAS. Claimed back here, and the focus
-		// put on the pen it came from: now, and again after the repaint a write brings, which redraws
-		// the pen (`_focusOnRepaint`, cleared if the write never happens).
-		this._pointerWithin = true;
-		const pen = `[data-relmap-tags="${id}"]`;
-		this._root?.querySelector?.(pen)?.focus?.();
-		if (answer === null || !this._stillOn(doc)) return;
-		const change = {};
-		if (!sameLines(readTags(answer.lines), node.tags)) change.tags = answer.lines;
-		if (answer.choice !== node.side) change.side = answer.choice;
-		if (!Object.keys(change).length) return;
-		this._focusOnRepaint = pen;
-		const written = await this._write(nodePatch(id, change), {
-			label: format("RELMAP.history.tagged", { name }),
-			onto: { kind: "nodes", id },
-		});
-		if (!written) this._focusOnRepaint = null;
 	}
 
 	// ── The bar ─────────────────────────────────────────────────────────────
@@ -4775,8 +5056,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const doc = this.boardDoc;
 		const graph = readGraph(doc);
 		const already = new Set(Object.values(graph.nodes).map(n => n.uuid).filter(Boolean));
+		// ⚠ ONLY WHO THIS READER CAN SEE (`visible`: Limited or better, everybody for a GM), the same
+		// people the Actors sidebar shows them and so the same people they could drag on. Every actor in
+		// the world reaches every client, so without this a player's chooser named and pictured the NPCs
+		// the GM is keeping back, and let them seat one on a shared board.
 		const actors = (game.actors?.contents ?? [])
-			.filter(actor => !already.has(actor.uuid));
+			.filter(actor => !already.has(actor.uuid) && actor.visible !== false);
 		if (!actors.length) {
 			ui.notifications?.info?.(localize("RELMAP.everyoneAdded"));
 			return;
@@ -4853,7 +5138,8 @@ export class RelationshipMapWindow extends RelmapDialog {
 		const seating = seatArrivals(graph, actors.map(actor => ({
 			uuid: actor.uuid, name: actor.name, img: actor.img ?? "",
 		})));
-		const patch = addNodesPatch(seating.nodes);
+		// A dead actor arrives wearing the Dead chip, in the same write (relmap/relmap-dead.js).
+		const patch = seatPatch(graph, seating.nodes);
 		if (!Object.keys(patch).length) return;
 		const count = Object.keys(seating.nodes).length;
 		return this._write(patch, {
@@ -4864,10 +5150,12 @@ export class RelationshipMapWindow extends RelmapDialog {
 
 	async _addNodeFor(actor, spot) {
 		const id = foundry.utils.randomID();
-		return this._write(addNodePatch(id, {
-			uuid: actor.uuid, name: actor.name, img: actor.img ?? "",
-			x: spot.left, y: spot.top,
-		}), {
+		const graph = readGraph(this.boardDoc);
+		// A dead actor arrives wearing the Dead chip, in the same write (relmap/relmap-dead.js).
+		const patch = seatPatch(graph, {
+			[id]: { uuid: actor.uuid, name: actor.name, img: actor.img ?? "", x: spot.left, y: spot.top },
+		}, { resolve: () => actor });
+		return this._write(Object.keys(patch).length ? patch : null, {
 			announce: format("RELMAP.added", { name: actor.name }),
 			label: format("RELMAP.history.added", { name: actor.name }),
 		});
@@ -5180,7 +5468,10 @@ export class RelationshipMapWindow extends RelmapDialog {
 			: plan?.graph?.groups && plan?.board
 				? groupShapes(plan.graph, plan.board, { wordScale, unnamed: localize("RELMAP.groups.unnamed") })
 				: [];
-		return boardBounds(Object.values(plan?.graph?.nodes ?? {}), plan?.board, shapes.map(shape => shape.frame));
+		// AND EVERY LINE AND CAPTION, which a wide fan between two people bows well past both of them.
+		// Off the paint for the reason the outlines are; the tests' plans have none.
+		const lines = this._drawn?.graph === plan?.graph ? [...(this._drawn?.shapes?.values() ?? [])] : [];
+		return boardBounds(Object.values(plan?.graph?.nodes ?? {}), plan?.board, shapes.map(shape => shape.frame), lines, plan?.scales?.name);
 	}
 
 	/**
@@ -5589,6 +5880,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		for (const bar of this._bars) bar.destroy();
 		this._tieBar = null;
 		this._groupBar = null;
+		this._personBar = null;
 		this._teardownDrag?.();
 		this._teardownDrag = null;
 		// The two document-level listeners the undo keys need. A closed window that kept them would
@@ -5612,6 +5904,7 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// BEFORE the teardown, while the bar still holds both the id and the field.
 		this._leaveBoard();
 		this._teardown();
+		this._unwatchHistory();
 		return super.close(options);
 	}
 }
@@ -5662,7 +5955,8 @@ function edgeShapes(graph, {
 		const dodge = clearanceBow({ ...ends, avoid: faces, aspect: RELMAP_BOARD_ASPECT, r });
 		const curve = edgeCurve({
 			...ends,
-			bow: edgeBow(fans[id] ?? 0, dodge),
+			// Mirrored when drawn against the pair's id order, so opposite-way twins never coincide.
+			bow: edgeBow(fans[id] ?? 0, dodge, { reversed: edge.a > edge.b }),
 			aspect: RELMAP_BOARD_ASPECT,
 			r,
 		});
@@ -5956,27 +6250,6 @@ const ELLIPSIS = "…";
  * BUILT FROM A REAL CAPTION rather than from a font written out here. The face comes down the
  * cascade from the dialog, and a copy of it in this file would be a second answer to drift from.
  */
-/**
- * The scratch canvas the measuring is done on, kept for the life of the page.
- *
- * ONE OF IT, and not one per pass. `captionMeasurer` runs on every repaint of the board — which is
- * every flag write any client makes to the page — and a canvas minted and thrown away each time is
- * an allocation on the path this feature has a measured raster budget for. Nothing about it is
- * per-board: `ctx.font` is assigned below from the live caption's own computed style, which is the
- * part that has to stay read rather than remembered.
- *
- * Keyed by document because a dialog can be popped out into a second window, and a canvas belongs
- * to the document that made it.
- */
-const CAPTION_CANVASES = new WeakMap();
-
-function measuringContext(doc) {
-	if (CAPTION_CANVASES.has(doc)) return CAPTION_CANVASES.get(doc);
-	const ctx = doc.createElement("canvas").getContext?.("2d") ?? null;
-	CAPTION_CANVASES.set(doc, ctx);
-	return ctx;
-}
-
 /**
  * Whether the reader has set a size on this one caption.
  *

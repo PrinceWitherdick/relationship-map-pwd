@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Labels under a name: rest the pointer on someone and click **Add a label** under their name to give them a short label, such as *Iron Knight* or *Deceased*. Each map keeps its own labels, separate from the actor. Up to 80 characters, wrapping onto two lines with the full text in the tooltip. Undo and redo cover it as its own step. Group outlines, the smallest a group can be resized to, and where a new person is put down all leave room for a label.
+- A rename or new art on an actor shows straight away on every open map. The name and picture a map keeps for a person, which it falls back on once their actor is deleted, now follow those changes too, so a deleted actor shows their latest name and picture instead of the ones they had when they were added.
+- Add someone lists only the actors you can see in the Actors sidebar, so a player is never offered an actor the GM is keeping hidden.
+- Escape with a line's, group's or label's bar open closes the bar. Holding Enter down no longer repeats. A drag or pan ends cleanly if the pointer is lost, for example on Alt-Tab.
+- Undo: one history per map, shared by every window open on it. A change still being saved finishes before an undo runs. Undoing a removal puts the person back in their groups, and an undo that would bring back someone already on the map joins them to the face that is there instead of adding a second one.
+- Two lines drawn in opposite directions between the same two people never sit on top of each other.
+- Lines left pointing at someone who is no longer on the map are tidied away by the GM's client.
+- The map's templates read every value as `{{this.name}}`, so a Handlebars helper registered by another module can no longer take over a value with the same name.
+- Tag chips on people: click someone's label (or **Add a label**) and use **Add chip** to put a small coloured tag under their name, such as *Noble* or *Outcast*. Make a new chip with a name of up to 24 letters, one of the eight map colours or any colour of your own, and an optional icon, or pick one already used on any map you can see. Chips sit in up to two rows under the label, with "+N" for the rest. Changing or deleting a chip changes it on every map you own that uses it, and putting a chip on or taking it off is one undo step.
+- A built-in **Dead** chip follows Foundry's own Dead status (the skull in the token HUD, or whatever your system marks the defeated with): someone added to a map while dead arrives wearing it, and marking them dead or bringing them back puts it on or takes it off on every map they are on. It can still be taken off by hand. An unlinked token marked dead changes only that token, so it does not change the map.
+- A fourth dial under the map, **Names**, makes names, labels and chips bigger or smaller for you alone. The dials now read Names, then Hide labels, Words, Lines and Arrowheads. Group outlines keep their size whatever the dial says.
+- Names are bigger (14px, from 12px) and so are labels (13px, from 11px), with more room for both; group outlines and the map's edges allow for them.
+- Faces, names, labels and chips are drawn over the words on lines, so a caption running past someone never covers who they are.
+
 ## 1.2.2
 
 - A group shrunk to its smallest size by a corner stays where the corner put it, instead of jumping to the middle of its people.

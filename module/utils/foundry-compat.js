@@ -55,3 +55,8 @@ export function deletionTarget(keyPath, value) {
 	if (value !== null || !leaf.startsWith("-=")) return null;
 	return `${keyPath.slice(0, i + 1)}${leaf.slice(2)}`;
 }
+
+/** The document behind a uuid, looked up without waiting, or null when there is none to find. */
+export function resolveSync(uuid) {
+	try { return globalThis.fromUuidSync?.(uuid, { strict: false }) ?? null; } catch { return null; }
+}

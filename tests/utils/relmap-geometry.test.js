@@ -1,12 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
 	RELMAP_BOARD_ASPECT, RELMAP_BOARD_MAX, RELMAP_BOARD_WIDTH, RELMAP_CAPTION_PX, RELMAP_HEAD_PX,
-	RELMAP_NAME_MAX_PX, RELMAP_PLATE_AIR_PX, RELMAP_TAG_MAX_PX,
 	bandPath, boardMetrics,
 	clampPct, clearanceBow,
-	RELMAP_LABEL_CLEAR_PX,
+	RELMAP_LABEL_CLEAR_PX, RELMAP_SUBTITLE_REACH_PX,
 	edgeArrowheads, edgeBow, edgeCurve, edgeLabelAnchor, fanBow, freeSpot, labelSize,
-	captionRoomPx, captionSize, curvePoints, curveWithGap, nodeRadiusPct, plateReach, ringsLayout,
+	captionRoomPx, captionSize, curvePoints, curveWithGap, nodeRadiusPct, ringsLayout,
 	seatAlong, spreadLabels,
 } from "../../module/utils/relmap-geometry.js";
 
@@ -472,6 +471,38 @@ describe("finding room for one more", () => {
 		expect(() => freeSpot([null, undefined, { left: 50, top: 50 }], { aspect: ASPECT, r }))
 			.not.toThrow();
 	});
+
+	// AUDIT 2026-11-03 (S3): somebody with a label under their name holds the label's box too.
+	describe("beside somebody with a label under their name", () => {
+		const opts = { aspect: ASPECT, r };
+		const first = freeSpot([], opts);
+		// Just far enough above the first seat that their FACES clear (2r + pad, and a hair), which
+		// puts their label, hung 57 to 88 board pixels under their centre, across the newcomer's face.
+		const above = { left: first.left, top: first.top - (2 * r + 3 + 0.5) * ASPECT };
+
+		it("seats a newcomer there when the person above has no label", () => {
+			expect(freeSpot([above], opts)).toEqual(first);
+		});
+
+		it("keeps the newcomer's face off the label when they have one", () => {
+			const spot = freeSpot([{ ...above, under: RELMAP_SUBTITLE_REACH_PX }], opts);
+			expect(spot).not.toEqual(first);
+			// Board pixels on the plain sheet: 12 to a percent across, 9.6 down.
+			const cx = above.left * 12;
+			const cy = above.top * 9.6;
+			const box = { left: cx - 66, right: cx + 66, top: cy + 57, bottom: cy + 88 };
+			const px = { x: spot.left * 12, y: spot.top * 9.6 };
+			const dx = Math.max(box.left - px.x, 0, px.x - box.right);
+			const dy = Math.max(box.top - px.y, 0, px.y - box.bottom);
+			// The face's own 36, and the same 36 of daylight a face keeps off another face's rim.
+			expect(Math.hypot(dx, dy)).toBeGreaterThanOrEqual(71);
+		});
+
+		it("seats exactly as before when nobody standing has a label", () => {
+			const taken = ringsLayout(7, opts);
+			expect(freeSpot(taken.map(p => ({ ...p, under: 0 })), opts)).toEqual(freeSpot(taken, opts));
+		});
+	});
 });
 
 describe("keeping a coordinate on the board", () => {
@@ -827,6 +858,23 @@ describe("putting a link's dodge and its place in the fan together", () => {
 
 	it("treats rubbish as no dodge at all", () => {
 		for (const bad of [null, undefined, "x", NaN]) expect(edgeBow(1, bad)).toBe(fanBow(1));
+	});
+
+	// AUDIT 2026-11-02: a bow bends to the left of the way a line is DRAWN, so Ann->Bo #2 and Bo->Ann #1
+	// with the plain alternating fan were the very same curve: two strokes, one hit target.
+	it("keeps three lines between one pair apart however each of them was drawn", () => {
+		const ann = { left: 20, top: 40 };
+		const bo = { left: 70, top: 40 };
+		// Ann->Bo (fan 0), Bo->Ann (fan 1), Ann->Bo (fan 2): the second runs against the pair's order.
+		const drawn = [
+			{ from: ann, to: bo, bow: edgeBow(0, 0, { reversed: false }) },
+			{ from: bo, to: ann, bow: edgeBow(1, 0, { reversed: true }) },
+			{ from: ann, to: bo, bow: edgeBow(2, 0, { reversed: false }) },
+		].map(spec => edgeCurve({ ...spec, aspect: ASPECT, r: 3 }));
+		const middles = drawn.map(curve => pointOn(curve, 0.5).top.toFixed(4));
+		expect(new Set(middles).size).toBe(3);
+		// And a lone straight line stays straight either way round.
+		expect(edgeBow(0, 0, { reversed: true })).toBe(0);
 	});
 });
 
@@ -1431,58 +1479,5 @@ describe("a caption on a board set in a bigger base", () => {
 		const said = labelSize(line, 1200, Infinity, 300, 0, RELMAP_CAPTION_PX * 1.5);
 		const quiet = labelSize(line, 1200, Infinity, 300, 0);
 		expect(said.w).toBe(quiet.w);
-	});
-});
-
-// HOW FAR ONE PERSON REACHES: the face, and the plate of words (the name and the tags under it) on
-// whichever side the reader stood it. The plain person below is today's figures to the pixel, so a
-// board stored before a side could be chosen frames and outlines exactly as it did; the other three
-// sides follow the stylesheet's placement (14px of air, the name estimated like a tag beside the face).
-describe("how far one person reaches, face and plate of words", () => {
-	const plain = { left: 54, right: 54, top: 36, bottom: 56 };
-
-	it("is the face and the name under it for a bare point, and for a side nobody wrote", () => {
-		expect(plateReach({ x: 1, y: 2 })).toEqual(plain);
-		expect(plateReach({ name: "Sela", tags: "deceased", side: "sideways" })).toEqual(plain);
-		expect(plateReach(undefined)).toEqual(plain);
-	});
-
-	it("hangs a line more for each tag below, and half a wide tag sideways", () => {
-		expect(plateReach({ tags: ["a", "b", "c"] })).toEqual({ ...plain, bottom: 104 });
-		const wide = plateReach({ tags: ["Ruler of the Thorny Tower"] });
-		// (6.3 * 25 + 7.2) / 2 = 82.35 each side, past the name's 54.
-		expect(wide.left).toBeCloseTo(82.35);
-		expect(wide.right).toBeCloseTo(82.35);
-		expect(wide.top).toBe(36);
-		expect(wide.bottom).toBe(72);
-		expect(plateReach({ tags: ["x".repeat(40)] }).right).toBe(RELMAP_TAG_MAX_PX / 2);
-	});
-
-	it("stands the plate over the face with the air that clears the handle and the trash can", () => {
-		expect(plateReach({ side: "above" })).toEqual({ left: 54, right: 54, top: 36 + 14 + 18, bottom: 36 });
-		expect(plateReach({ side: "above", tags: ["a", "b"] }).top).toBe(100);
-		expect(plateReach({ side: "above", tags: ["Ruler of the Thorny Tower"] }).left).toBeCloseTo(82.35);
-	});
-
-	it("stands the plate beside the face, as wide as its widest line, the name estimated like a tag", () => {
-		const right = plateReach({ side: "right", name: "Sela" });
-		// 36 + 14 + (6.3 * 4 + 7.2) on the right; the face alone on the other three sides.
-		expect(right.right).toBeCloseTo(82.4);
-		expect(right.left).toBe(36);
-		expect(right.top).toBe(36);
-		expect(right.bottom).toBe(36);
-		expect(plateReach({ side: "right", name: "Sela", tags: ["Ruler of the Thorny Tower"] }).right).toBeCloseTo(214.7);
-		expect(plateReach({ side: "right", name: "x".repeat(40) }).right).toBe(36 + 14 + RELMAP_TAG_MAX_PX);
-		const left = plateReach({ side: "left", name: "" });
-		expect(left.left).toBeCloseTo(36 + 14 + 7.2);
-		expect(left.right).toBe(36);
-		// Three tags make the plate 66 tall, half 33, inside the face's 36: up and down stay the face's.
-		expect(plateReach({ side: "left", tags: ["a", "b", "c"] }).top).toBe(36);
-	});
-
-	it("ties its figures to the stylesheet's", () => {
-		expect(RELMAP_PLATE_AIR_PX).toBe(14);
-		expect(RELMAP_NAME_MAX_PX).toBe(108);
-		expect(RELMAP_TAG_MAX_PX).toBe(2 * RELMAP_NAME_MAX_PX);
 	});
 });

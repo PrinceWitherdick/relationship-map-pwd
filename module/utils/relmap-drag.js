@@ -21,9 +21,8 @@ import { holdTravel } from "./relmap-geometry.js";
  * open paper. The selection box starts only from open paper: a Shift press on a portrait is a
  * portrait's gesture, and one on a line is a line's.
  */
-const CLAIMED = "[data-relmap-node], [data-relmap-handle], [data-relmap-remove], [data-relmap-tags], "
-	+ "[data-relmap-edge], [data-relmap-hit], [data-relmap-action], [data-relmap-group], [data-relmap-group-hit], "
-	+ "[data-relmap-grip]";
+const CLAIMED = "[data-relmap-node], [data-relmap-handle], [data-relmap-remove], [data-relmap-edge], "
+	+ "[data-relmap-hit], [data-relmap-action], [data-relmap-group], [data-relmap-group-hit], [data-relmap-grip]";
 
 /** The bars that float in the viewport over the board, each with an Escape of its own. */
 const BOARD_BARS = ".relmap-tiebar, .relmap-groupbar";
@@ -122,6 +121,15 @@ export function dragTranslation({ dx = 0, dy = 0, scale = 1 } = {}) {
 }
 
 /**
+ * WHO a part of a person on the board belongs to: their face, name, label or chips all stand inside
+ * the person's own `[data-relmap-node]`, so its id answers for every one of them, and a new part needs
+ * no attribute of its own to be found.
+ */
+function personOf(el) {
+	return el?.closest?.("[data-relmap-node]")?.dataset?.relmapNode;
+}
+
+/**
  * Where a portrait has been carried to, written for the stylesheet to fold into its own transform.
  *
  * TWO CUSTOM PROPERTIES AND NOT AN INLINE `transform`, and this is the whole reason the drop lands
@@ -199,10 +207,6 @@ function clearTravel(el) {
  * @param {Function} handlers.onArm     `(id|null) => void` — show the trash can on one portrait,
  *                                      or on nobody. NOT a removal and never confirmed: it is the
  *                                      board saying which person the next press could take off.
- * @param {Function} handlers.onTags    `id => void` — the pen on a portrait pressed, or the name
- *                                      under it (or a tag already there) double-clicked: open the
- *                                      editor for the tags under that person's name. Only where
- *                                      `canEdit()`.
  *                                      The window owns the mark rather than this layer, because
  *                                      the board's markup is the window's and a repaint replaces
  *                                      every portrait on it.
@@ -257,6 +261,9 @@ function clearTravel(el) {
  *                                      or Enter on its name. `from` is the element, for Escape to
  *                                      put the focus back on.
  * @param {Function} handlers.onRemoveGroup `id => void` — Delete on a group's name.
+ * @param {Function} handlers.onPickPerson `(id, from) => void` — the label under somebody's name
+ *                                      (`[data-relmap-subtitle]`) clicked, or Enter on it: raise the
+ *                                      bar that changes it. `from` is the element, for Escape.
  * @param {Function} handlers.onResizeMove `(id, corner, {left, top}, {square}) => void` — one of a held
  *                                      group's corners (`[data-relmap-grip]`) is being dragged, and the
  *                                      pointer is HERE, in board percentages, once per painted frame.
@@ -289,18 +296,30 @@ function clearTravel(el) {
  *                                      person to draw from, or the pick was let go.
  * @param {Function} handlers.onStopLinking `() => void` — Escape on the board with the tool armed and
  *                                      nobody picked: stand the tool down.
+ * @param {Function} handlers.barOpen  `() => boolean` -- whether a line's, group's or label's bar is up, so
+ *                                      Escape on the board puts it down (`onPickNone`) and not the window.
+ *
+ * ── A PRESS HELD ON THE BOARD ──
+ *
+ * @param {Function} handlers.onPressEnd `() => void` -- a press this layer took hold of is over, however
+ *                                      it ended: let go, cancelled, lost, a release somewhere this board
+ *                                      never heard, or the teardown. For a repaint held back by `pressing`.
  * @returns {Function} teardown, carrying `stopAiming()` for a window that stands the tool down itself,
- *                    `repaintAim()` for one that has just replaced the board's contents, and
- *                    `heldAim()` / `resumeAim(held)` to carry a pick from one wiring to the next.
+ *                     `repaintAim()` for one that has just replaced the board's contents,
+ *                     `heldAim()` / `resumeAim(held)` to carry a pick from one wiring to the next,
+ *                     and `pressing()`: whether a press is held on the board right now, from the moment it
+ *                     is armed and not only once it has travelled far enough to be a drag. A repaint
+ *                     replaces every portrait, and one landing between the press and the threshold left
+ *                     the drag carrying a portrait no longer in the document.
  */
 export function wireRelmapDrag(root, {
 	surface, nodeAt, onMove, onNudge, onDragMove, onDragEnd, onLink, onLinkFrom, onOpen, onPickEdge,
-	onPickNone, onRemove, onArm, onTags,
+	onPickNone, onRemove, onArm,
 	seatAt, onSeatMove, onSeat, onSeatEnd, onSeatNudge,
 	selected = () => [], onSelect, nodesIn, onGroupMove, onGroupDragMove, onGroupDragEnd, onGroupNudge,
-	groupMembers, onPickGroup, onRemoveGroup, onResizeMove, onResize, onResizeEnd,
+	groupMembers, onPickGroup, onRemoveGroup, onPickPerson, onResizeMove, onResize, onResizeEnd,
 	drawing = () => false, onDrawn,
-	linkBand, linking = () => false, onLinkPicked, onStopLinking,
+	linkBand, linking = () => false, onLinkPicked, onStopLinking, barOpen, onPressEnd,
 	canEdit = () => true,
 	canMove = canEdit,
 	canRemove = canEdit,
@@ -655,12 +674,20 @@ export function wireRelmapDrag(root, {
 		}
 		// AND A GROUP'S OUTLINE, redrawn at every frame of a resize, for the same reason.
 		if (finished.started && finished.kind === "resize") onResizeEnd?.(finished.id, !committed);
+		// LAST, with every class off and every handler above run: a repaint `pressing` held back can
+		// land now, for a press that never became a drag as much as for one that did.
+		onPressEnd?.();
 		return finished;
 	}
 
 	// THIS BOARD'S OWN HANDLE on the one Escape slot the page has, so this board's exits disarm only a
 	// drag this board armed. See `endCancellableDrag`.
-	const cancelDrag = () => end();
+	//
+	// ⚠ AND THE CLICK THE BUTTON STILL OWES IS EATEN. Escape is pressed with the button down, and letting
+	// go of it afterwards still makes a click, at whatever the press and the release have in common:
+	// the board, usually, whose bare-paper branch let go of the whole selection and the pick. Nothing
+	// leaks if no click comes: the next press clears a swallow still standing (see pointerdown).
+	const cancelDrag = () => { if (end()) swallowClick = true; };
 
 	/**
 	 * How far a carried portrait has travelled, in board percentages: where on the board the pointer is
@@ -755,7 +782,16 @@ export function wireRelmapDrag(root, {
 		if (!frameId) frameId = requestAnimationFrame(frame);
 	}
 
+	// ⚠ ESCAPE IS A PRESS'S FROM THE MOMENT IT IS ARMED, not from the moment it travels. Taken only at
+	// the threshold, an Escape pressed with the button still down and the hand not yet moving went on
+	// to core's dismiss and closed the window under the reader's hand.
 	view.addEventListener("pointerdown", ev => {
+		const before = drag;
+		arm(ev);
+		if (drag && drag !== before) beginCancellableDrag(cancelDrag);
+	});
+
+	function arm(ev) {
 		// ⚠ A SWALLOW STILL STANDING HERE IS ONE THE CLICK NEVER CAME FOR, and this is the only
 		// place that can notice. `swallowClick` is armed by a release that ended a drag and spent
 		// by the click the browser derives from it a moment later -- so at the next press it is
@@ -909,9 +945,7 @@ export function wireRelmapDrag(root, {
 		// a hand that shifts three pixels between press and release then moves them across the
 		// board instead, and `swallowClick` eats the click the button was waiting for. Returning
 		// rather than consuming leaves the click intact, which is the whole of what this button is.
-		// AND THE PEN FOR THE TAGS UNDER THE NAME, for the same reason: a press on it means "the words
-		// under this person", never "pick this person up".
-		if (ev.target.closest?.("[data-relmap-remove], [data-relmap-tags]")) return;
+		if (ev.target.closest?.("[data-relmap-remove]")) return;
 		// ⚠ THE WORDS ON A LINE, WHICH ARE DRAGGED ALONG IT and are checked BEFORE the portraits
 		// below for the reason the click handler checks them first: a caption sits IN its stroke,
 		// so a press on the writing has aimed at the writing. It is not inside a node, so nothing
@@ -1008,7 +1042,7 @@ export function wireRelmapDrag(root, {
 		// the pointercancel, the teardown, or the first move made with no button held, whichever
 		// arrives. That last one is the release that happened somewhere else; see pointermove.
 		swallowClick = false;
-	});
+	}
 
 	view.addEventListener("pointermove", ev => {
 		// THE AIM FOLLOWS THE POINTER WITH NO BUTTON DOWN, one frame at a time like a drag.
@@ -1029,11 +1063,13 @@ export function wireRelmapDrag(root, {
 			// is captured while a press is merely armed (see pointerdown), so a release a pixel or two past
 			// the edge of the viewport went to whatever was there instead. Left armed, the next pass of
 			// the cursor over the board lifted the portrait with no button held and carried it about,
-			// every live update waited behind `is-dragging`, and the next click anywhere dropped it. A
+			// every live update waited behind the press (`pressing`), and the next click anywhere dropped it. A
 			// host that reports no `buttons` at all (the tests' fake events) compares false and carries on.
 			if (ev.buttons === 0) { end(); return; }
 			if (!isLiftedDrag(drag.dx, drag.dy)) return;
 			drag.started = true;
+			// The portraits held at the press are still the ones on the board: a repaint waits for the
+			// whole press (`pressing`), not only for the drag it turns into.
 			// A REAL DRAG PUTS A PICK DOWN: the band and the Escape slot are the drag's now.
 			endAim();
 			// NOW, and not at pointerdown: a fast drag has to keep being followed once the cursor
@@ -1086,9 +1122,8 @@ export function wireRelmapDrag(root, {
 		// handlers below still see it and a press on a portrait still opens a sheet.
 		if (!drag.started) { end(); return; }
 		// It did, so the click this release is about to produce is the tail of a drag and not a
-		// press on anything. Set HERE and not in `end`, which also runs for an Escape and a
-		// pointercancel — neither of which is followed by a click, so a flag set there would sit
-		// armed and eat the reader's next real one.
+		// press on anything. Set HERE and not in `end`, which also runs for a pointercancel and a
+		// teardown, and neither is followed by a click. (An Escape is, and `cancelDrag` sets it too.)
 		swallowClick = true;
 		// Resolved from the RELEASE position, synchronously: the moves are coalesced to one frame
 		// each, so the last one or two before the release may never have been processed.
@@ -1168,7 +1203,9 @@ export function wireRelmapDrag(root, {
 		if (drag && ev.pointerId === drag.pointerId) end();
 	});
 	view.addEventListener("lostpointercapture", ev => {
-		if (drag && ev.pointerId === drag.pointerId) end();
+		// A capture lost with the button still down leaves a click to come, as an Escape does. Our own
+		// release lets the capture go only after `end` has cleared `drag`, so it never arrives here.
+		if (drag && ev.pointerId === drag.pointerId && end()?.started) swallowClick = true;
 	});
 
 	// ── Clicks ──────────────────────────────────────────────────────────────
@@ -1203,10 +1240,6 @@ export function wireRelmapDrag(root, {
 		// the first Escape dropped the pick instead of closing what had just opened, and the next face
 		// clicked drew a line from somebody the reader had stopped thinking about.
 		if (handle) { ev.preventDefault(); endAim(); if (canEdit()) onLinkFrom?.(handle.dataset.relmapHandle); return; }
-		// THE PEN: the tags under this person's name. It opens a window of its own, so the pick goes
-		// down first, exactly as it does for the handle's picker above.
-		const pen = ev.target.closest?.("[data-relmap-tags]");
-		if (pen) { ev.preventDefault(); endAim(); if (canEdit()) onTags?.(pen.dataset.relmapTags); return; }
 		// THE WORDS FIRST AND THE STROKE SECOND, though either one takes hold of the same line: a
 		// caption sits IN its stroke, so the two overlap, and a reader aiming at the writing has
 		// aimed at the writing. (In practice the caption layer is drawn over the line layer and
@@ -1255,7 +1288,20 @@ export function wireRelmapDrag(root, {
 			}
 			return;
 		}
-		// ⚠ A SINGLE CLICK ON A FACE OPENS NOTHING ANY MORE (user, 2026-09-10). The board is the
+		// THE LABEL UNDER A NAME ("Iron Knight", "Add a label"), pressed and not dragged: its bar goes
+		// up. A press that travels is still the person's drag, as one on the name is, and `swallowClick`
+		// above has already eaten the click that drag would have left behind.
+		// THE CHIPS UNDER IT ("Dead") are the same press: they live on the same bar.
+		const subtitle = ev.target.closest?.("[data-relmap-subtitle], [data-relmap-chips]");
+		// ⚠ EXCEPT WITH "DRAW LINES" ARMED, when the label is the person as the face is, and the click is
+		// the tool's (below). Raising the bar instead left the aim live with its band following the
+		// pointer, and Escape in the field then went to the aim and not to the words.
+		if (subtitle && !(linking?.() && canEdit())) {
+			ev.preventDefault();
+			if (canEdit()) onPickPerson?.(personOf(subtitle), subtitle);
+			return;
+		}
+		// ⚠ A SINGLE CLICK ON A FACE OPENS NOTHING ANY MORE. The board is the
 		// surface a whole table clicks around on while talking -- pointing at people, taking hold
 		// of the lines between them -- and a face that threw a character sheet up over the map on
 		// every one of those was the map covering itself. The sheet is on the DOUBLE click now,
@@ -1267,7 +1313,11 @@ export function wireRelmapDrag(root, {
 		// a pointer has to a sheet at all. A keyboard-activated click carries `detail === 0`; every
 		// click a mouse makes counts from 1. Read affirmatively -- an event stand-in with no
 		// `detail` at all is not a keyboard press and must not be taken for one.
-		const face = ev.target.closest?.("[data-relmap-open]");
+		// ⚠ THE NAME IS THE PERSON TOO, and so is a reader's plain label (a span, with no data of its
+		// own). Left to fall through, a click on somebody's name was a click on bare paper: it let go
+		// of every bar, the whole selection and a Draw-lines pick.
+		const face = ev.target.closest?.("[data-relmap-open]") ?? subtitle ?? ev.target.closest?.("[data-relmap-node]");
+		const faceId = personOf(face);
 		// WITH "DRAW LINES" ARMED, A CLICK ON A FACE IS THE TOOL'S, from the mouse and the keyboard
 		// alike: the first picks who to draw from, the next on somebody else draws the line, and the
 		// same face again lets the pick go. Enter on a face draws lines instead of opening a sheet
@@ -1290,7 +1340,7 @@ export function wireRelmapDrag(root, {
 		}
 		if (face) {
 			ev.preventDefault();
-			if (ev.detail === 0) onOpen?.(face.dataset.relmapOpen);
+			if (ev.detail === 0) onOpen?.(faceId);
 			return;
 		}
 		// NOTHING ON THE BOARD. Not `preventDefault`: a press on bare paper is the pan surface's,
@@ -1348,21 +1398,9 @@ export function wireRelmapDrag(root, {
 		// taken them out again. That is a reader choosing people, not asking for a sheet.
 		if (addsToSelection(ev)) return;
 		const face = ev.target.closest?.("[data-relmap-open]");
-		if (face) {
-			ev.preventDefault();
-			onOpen?.(face.dataset.relmapOpen);
-			return;
-		}
-		// A DOUBLE CLICK ON THE NAME, or on a tag under it, opens the editor for the tags under that
-		// name: the words are the thing being edited, so the words are where a reader double-clicks.
-		// The name is a SIBLING of the face and not a child, so the walk above went past it; the node
-		// round both carries the id. Only where the board may be edited, and never also a zoom: the
-		// pan surface refuses a double click on anything inside `[data-relmap-node]`.
-		const words = ev.target.closest?.(".relmap-name, .relmap-tag");
-		const node = words?.closest?.("[data-relmap-node]");
-		if (!node) return;
+		if (!face) return;
 		ev.preventDefault();
-		if (canEdit()) onTags?.(node.dataset.relmapNode);
+		onOpen?.(face.dataset.relmapOpen);
 	});
 
 	// ── Keyboard ────────────────────────────────────────────────────────────
@@ -1393,6 +1431,22 @@ export function wireRelmapDrag(root, {
 				letGo();
 				return;
 			}
+		}
+		// AND A BAR LEFT OPEN, last: the focus back on the board with a line's, a group's or a label's
+		// bar still up, and the Escape that means "put that down" went on to core, which closed the
+		// whole window. The bar is put down as a click on bare paper would (`onPickNone`), text kept.
+		if (ev.key === "Escape" && !drag && isPaper(ev.target) && barOpen?.()) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			onPickNone?.();
+			return;
+		}
+		// ⚠ A HELD ENTER ON A LABEL IS ONE PRESS. Each repeat activated the button again, and with the
+		// bar handing the focus back on its own Enter, holding the key opened and shut it in a loop.
+		if (ev.repeat && ev.key === "Enter" && ev.target.closest?.("[data-relmap-subtitle]")) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			return;
 		}
 		// A GROUP'S NAME, which is a `div` wearing `role="button"`: Enter and Space are handed to it
 		// as they are to a caption, and the arrows and Delete are claimed below with everything else.
@@ -1436,11 +1490,10 @@ export function wireRelmapDrag(root, {
 		// the button means -- would hand the keystroke to the scene behind this window.
 		// ⚠ AND A GROUP'S NAME IS A TAB STOP TOO, whose Delete means "rub this group out". Left out
 		// of this list, that Delete would reach the scene and take the GM's selected tokens with it.
-		// AND THE PEN for the tags under the name, a fourth sibling tab stop, with the handle's own
-		// rule below: its keys are kept from the scene and do nothing here (the button itself
-		// activates on Enter and Space, which is the keyboard's route to the editor).
+		// ⚠ SO IS THE LABEL UNDER A NAME, a sibling of the face like the handle. It does nothing with
+		// Delete or the arrows; it is here so they never reach the scene.
 		const mine = face
-			?? ev.target.closest?.("[data-relmap-edge], [data-relmap-handle], [data-relmap-remove], [data-relmap-tags], [data-relmap-group]");
+			?? ev.target.closest?.("[data-relmap-edge], [data-relmap-handle], [data-relmap-remove], [data-relmap-group], [data-relmap-subtitle]");
 		if (!mine) return;
 		const step = ev.shiftKey ? NUDGE_FINE : NUDGE_STEP;
 		const move = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
@@ -1472,6 +1525,10 @@ export function wireRelmapDrag(root, {
 		// action is decided rather than where the event is claimed.
 		ev.preventDefault();
 		ev.stopPropagation();
+		// ⚠ NOTHING WHILE THE POINTER IS CARRYING SOMETHING. A nudge then is a second write about the
+		// same people racing the drop's, and whichever lands last decides where they end up. Swallowed
+		// all the same (the paragraph above), so the scene does not get the key either.
+		if (drag?.started) return;
 		// ⚠ THE TRASH CAN ACTS, rather than only swallowing. It is the one tab stop on this board
 		// whose Delete means exactly what the button under it means -- which is the reason the
 		// paragraph above put it in `mine` at all -- and it carries no `data-relmap-open`, so
@@ -1569,7 +1626,7 @@ export function wireRelmapDrag(root, {
 		globalThis.document?.removeEventListener?.("keyup", squareKey);
 	};
 	// For the window, which stands the "Draw lines" tool down from its own footer, outside this board.
-	teardown.stopAiming = endAim;
+	teardown.stopAiming = () => endAim();
 	// AND FOR ITS REPAINT, which wipes the pick's mark and band with the rest of the board. A pointer
 	// pick would get them back on the next move; a keyboard pick has no next move, and sat there
 	// unmarked. One frame puts both back (`paintAim`).
@@ -1582,5 +1639,7 @@ export function wireRelmapDrag(root, {
 		if (!held || !linking() || !canEdit() || !nodeEl(held.id)) return;
 		startAim(held.id, held.clientX, held.clientY, { quiet: true });
 	};
+	// And for its repaints, which wait while this is true. See the `@returns` above.
+	teardown.pressing = () => drag !== null;
 	return teardown;
 }

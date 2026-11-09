@@ -109,13 +109,17 @@ export function applyTheme(root) {
  * (relmap/relmap-ink.js), so a window whose theme changed is asked to `refreshTheme` itself.
  */
 export function refreshOpenWindows() {
-	const doc = globalThis.document;
-	if (!doc?.querySelectorAll) return;
-	for (const root of doc.querySelectorAll(`.${WINDOW_CLASS}`)) {
-		if (!applyTheme(root)) continue;
-		const app = globalThis.ui?.windows?.[root.dataset?.appid];
-		app?.refreshTheme?.();
+	for (const [root, app] of openWindows()) {
+		if (applyTheme(root)) app?.refreshTheme?.();
 	}
+}
+
+/** Every open window of ours on the page, as `[root, app]`; `app` is null where core has none for it. */
+export function openWindows() {
+	const doc = globalThis.document;
+	if (!doc?.querySelectorAll) return [];
+	return [...doc.querySelectorAll(`.${WINDOW_CLASS}`)]
+		.map(root => [root, globalThis.ui?.windows?.[root.dataset?.appid] ?? null]);
 }
 
 /** Follow core's colour scheme and this module's high-contrast switch. Call once, from `init`. */

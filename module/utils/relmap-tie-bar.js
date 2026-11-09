@@ -163,7 +163,7 @@ const TIE_DEFERRED = Object.freeze({
 
 /** How far above the line the bar floats, and how near the viewport's edges it may come. */
 const TIE_BAR_GAP_PX = 14;
-const TIE_BAR_EDGE_PX = 6;
+export const TIE_BAR_EDGE_PX = 6;
 
 /**
  * How far the stroke must stay outside the bar's box before a seat counts as clear of it.
