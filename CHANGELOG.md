@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 - Labels under a name: rest the pointer on someone and click **Add a label** under their name (or click the name itself) to give them a short label, such as *Iron Knight* or *Deceased*. Each map keeps its own labels, separate from the actor. Up to three lines (Enter starts a new one, and a long line wraps) and 120 characters, with the full text in the portrait's tooltip. Everything changed in the bar (the words, the side, italics and chips) shows on the map as you make it, for you alone. **Save** (or Ctrl+Enter) keeps it all as one undo step; Escape, the ×, or clicking away puts it back as it was. Group outlines, the smallest a group can be resized to, and where a new person is put down all leave room for a label.
 - Name, label and chips placement: in the same bar, choose **Above**, **Below**, **Left** or **Right** to move someone's name, label and chips together to that side of their portrait, for a busy map where lines run across the words. Group outlines and the map's edges follow. **Italicize** sets the label in italics, as before, or upright when turned off. A new label starts in whatever the last label saved on that map used. Existing maps look as they did. Thanks to Dom Bosco ([@domfortunato](https://github.com/domfortunato)), whose pull request #2 brought the lines, the choice of side and the Save button.
