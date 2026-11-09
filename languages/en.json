@@ -36,7 +36,19 @@
       "edit": "Change the label under {name}",
       "field": "Label under the name",
       "placeholder": "e.g. Iron Knight, Deceased",
-      "bar": "The label under {name}"
+      "bar": "The label under {name}",
+      "hint": "Enter starts a new line, up to {max}.",
+      "title": "Label for {name}",
+      "close": "Close without saving",
+      "where": "Name, label and chips placement",
+      "side": {
+        "below": "Below",
+        "above": "Above",
+        "left": "Left",
+        "right": "Right"
+      },
+      "italic": "Italicize",
+      "save": "Save"
     },
     "chips": {
       "dead": "Dead",

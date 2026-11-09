@@ -9,6 +9,13 @@
 // IT SITS WHERE THE LABEL DOES, under the name. The reader clicked the words (or the "Add a label"
 // ghost) to get here, so that is where the field turns up, with the face and the name left showing.
 //
+// THE LABEL, WHERE THE WORDS GO AND THE ITALICS ARE KEPT ON SAVE, AND NOT BEFORE. The box is three lines
+// tall and Enter starts a new line in it (up to `RELMAP_SUBTITLE_LINES`); the side (below, above, left,
+// right) moves the name, label and chips round the face together; Italic is on unless turned off. Save,
+// or Ctrl+Enter, writes whichever of the three changed as ONE write and one step of the undo, and puts
+// the bar away. Escape, or a click away, keeps none of it. After Dom Bosco's tags pull request
+// (domfortunato), which brought the lines, the side and the Save button.
+//
 // CHIPS ARE WRITTEN AT ONCE, unlike the label: each is one press (put on, take off) and one step of the
 // undo. Add chip drops a menu of every chip on every board (utils/suggestion-menu.js: suggestions are a
 // menu off the Add button, never a row of chips), led by "New chip". The chip FORM makes a new chip or
@@ -16,16 +23,20 @@
 // not be broadcast as the reader tries them.
 
 import { RelmapBoardBar, markChosen } from "./relmap-board-bar.js";
-import { TIE_BAR_EDGE_PX, TIE_WRITE_DELAY_MS } from "./relmap-tie-bar.js";
+import { TIE_BAR_EDGE_PX } from "./relmap-tie-bar.js";
 import { chipPaint, chipPillHtml, inkClass, inkStyle } from "./relmap-chip-pill.js";
 import { escHtml as esc } from "./strings.js";
 import { closeSuggestionMenu, openSuggestionMenu } from "./suggestion-menu.js";
 import { localize } from "./i18n.js";
 import { normalizeHex, resolveInkHex } from "../relmap/relmap-ink.js";
-import { RELMAP_INK_DEFAULT, chipNameOf } from "../relmap/relmap-store.js";
+import {
+	RELMAP_INK_DEFAULT, RELMAP_SIDE_DEFAULT, RELMAP_SUBTITLE_LINES, chipNameOf, readItalic, readSide, subtitleOf,
+} from "../relmap/relmap-store.js";
 
-/** The two rows of presses on the chip form that the arrow keys walk. */
+/** The rows of presses that the arrow keys walk: the chip form's two. (The sides are real radios.) */
 const FORM_RADIOS = Object.freeze(["chipink", "chipicon"]);
+/** Each bar's side radios are named for that bar alone, so two windows' groups never join. */
+let sideGroups = 0;
 /** How many icons stand in one row of the form's grid (`.relmap-chipform-icons`). */
 export const CHIP_ICON_COLUMNS = 9;
 
@@ -33,10 +44,8 @@ const markRadio = (buttons, value) => markChosen(buttons, value, { may: false, k
 /** A pattern from the markup with its `{chip}` filled in. */
 const said = (pattern, chip) => String(pattern ?? "").replaceAll("{chip}", chip ?? "");
 
-/** The label is held back before it is written, for the tie bar's caption's reason. */
-const PERSON_HELD = Object.freeze({
-	subtitle: { ms: TIE_WRITE_DELAY_MS, flush: bar => bar.flush() },
-});
+/** How many lines a label box holds now. */
+const linesIn = text => String(text ?? "").split("\n").length;
 
 export class RelmapPersonBar extends RelmapBoardBar {
 	/**
@@ -63,11 +72,11 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		surface, personAt, onField, onPicked, canEdit = () => true,
 		library, onWear, onTakeOff, onSaveChip, onDropChip, onNudged, onNeedName,
 	} = {}) {
+		// NOTHING HELD BACK ON A TIMER: the label is written on Save (`_save`), never as it is typed.
 		super(root, {
 			bar: ".relmap-personbar",
 			press: "relmap-pbar",
 			writing: { field: "subtitle", key: "subtitle" },
-			held: PERSON_HELD,
 		}, { surface, onField, onPicked, canEdit });
 		this._personAt = personAt ?? (() => null);
 		this._library = library ?? (() => []);
@@ -78,6 +87,22 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this._onNudged = onNudged ?? (() => {});
 		this._onNeedName = onNeedName ?? (() => {});
 		this.subtitle = this._field;
+		this.sides = [...(this.el?.querySelectorAll?.("[data-relmap-pbar='side']") ?? [])];
+		const group = `relmap-side-${++sideGroups}`;
+		for (const radio of this.sides) radio.name = group;
+		this.title = this.el?.querySelector?.(".relmap-personbar-title") ?? null;
+		this.head = this.el?.querySelector?.(".relmap-personbar-head") ?? null;
+		/**
+		 * WHERE THE READER DRAGGED THE BAR TO, in the viewport's pixels, or null while it rides under
+		 * its person. Once moved it stays where it was put, through pans and zooms, until it is let go.
+		 */
+		this._moved = null;
+		this.italicBox = this.el?.querySelector?.("[data-relmap-pbar='italic']") ?? null;
+		/** The side and the italics as this bar has them, and as the document had them when it opened. */
+		this._side = RELMAP_SIDE_DEFAULT;
+		this._italic = true;
+		this._savedSide = RELMAP_SIDE_DEFAULT;
+		this._savedItalic = true;
 		this.worn = this.el?.querySelector?.(".relmap-personbar-worn") ?? null;
 		this.addChip = this.el?.querySelector?.("[data-relmap-pbar='chipadd']") ?? null;
 		this.form = this.el?.querySelector?.(".relmap-chipform") ?? null;
@@ -95,10 +120,22 @@ export class RelmapPersonBar extends RelmapBoardBar {
 
 	_wire() {
 		if (!this.el) return;
-		if (this.subtitle) {
-			this._on(this.subtitle, "input", () => this._defer("subtitle"));
-			this._on(this.subtitle, "blur", () => this.flush());
-			this._on(this.subtitle, "change", ev => ev.stopPropagation());
+		if (this.subtitle) this._on(this.subtitle, "change", ev => ev.stopPropagation());
+		this._wireMove();
+		// THE SIDES ARE RADIOS: the one checked is what Save will write. Stopped for Italic's reason below.
+		for (const radio of this.sides) {
+			this._on(radio, "change", ev => {
+				ev.stopPropagation();
+				if (radio.checked) this._side = readSide(radio.value);
+			});
+		}
+		// ITALIC IS A CHECKBOX: the box says what Save will write. Stopped, as the window has `change`
+		// handlers of its own above the bar.
+		if (this.italicBox) {
+			this._on(this.italicBox, "change", ev => {
+				ev.stopPropagation();
+				this._italic = !!this.italicBox.checked;
+			});
 		}
 		this._on(this.el, "click", ev => {
 			const button = ev.target?.closest?.("[data-relmap-pbar]");
@@ -118,6 +155,13 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		if (!this.id || !this._canEdit()) return;
 		const id = this.id;
 		switch (what) {
+			case "save": return this._save();
+			// The title's x: Escape's way out, keeping nothing.
+			case "close": {
+				this._closeForm();
+				this._forgetWriting();
+				return this.dismiss();
+			}
 			case "chipadd": return this._openMenu();
 			case "chipedit": return this._openForm(value);
 			case "chipoff": {
@@ -157,25 +201,28 @@ export class RelmapPersonBar extends RelmapBoardBar {
 			this.dismiss();
 			return;
 		}
+		// IN THE LABEL BOX, Enter starts a new line (while there is room for one) and Ctrl+Enter saves.
+		if (ev.key === "Enter" && ev.target === this.subtitle) {
+			ev.stopPropagation();
+			// ⚠ NOT A HELD ONE. The Enter that opened this bar keeps repeating into the box.
+			if (ev.repeat) { ev.preventDefault(); return; }
+			if (ev.ctrlKey || ev.metaKey) {
+				ev.preventDefault();
+				this._save();
+				return;
+			}
+			if (linesIn(this.subtitle.value) >= RELMAP_SUBTITLE_LINES) ev.preventDefault();
+			return;
+		}
 		if (ev.key === "Enter" && ev.target === this.chipName) {
 			ev.preventDefault();
 			ev.stopPropagation();
 			if (!ev.repeat) this._saveChip();
 			return;
 		}
-		// Enter on a button is the button's own press; only the label field closes the bar with it.
-		if (ev.key === "Enter" && ev.target !== this.subtitle) {
-			ev.stopPropagation();
-			return;
-		}
+		// Enter on a button is the button's own press.
 		if (ev.key === "Enter") {
-			ev.preventDefault();
 			ev.stopPropagation();
-			// ⚠ NOT A HELD ONE. The Enter that opened this bar keeps repeating into the field, and closing
-			// on it handed the focus back to the label, whose next repeat opened the bar again.
-			if (ev.repeat) return;
-			this.flush();
-			this.dismiss();
 			return;
 		}
 		// Every other key is the field's: stopped, not prevented, so it still types and the caret's
@@ -199,16 +246,15 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		const again = this.isOpen && this.id === id;
 		if (this.id && !again) this.flush();
 		this.id = id;
+		// Opened on somebody else, it starts under them again.
+		if (!again) this._moved = null;
 		this._returnTo = returnTo ?? null;
 		this._at = held.at ?? null;
 		this._lift = held.lift ?? null;
 		this._box = null;
-		if (!again && this.subtitle) {
-			this.subtitle.value = held.node?.subtitle ?? "";
-			this._saved = this.subtitle.value;
-			this._disarm("subtitle");
-		}
+		if (!again) this._fill(held.node);
 		if (held.label) this.el.setAttribute?.("aria-label", held.label);
+		this._paintTitle(held);
 		if (!again) this._closeForm();
 		this._paintWorn(held);
 		this.el.hidden = false;
@@ -246,29 +292,172 @@ export class RelmapPersonBar extends RelmapBoardBar {
 	/**
 	 * The board has been repainted underneath. The person may have moved or been taken off.
 	 *
-	 * ⚠ THE FIELD IS REFILLED ONLY WHEN NOBODY IS TYPING IN IT: not focused, nothing held back, and
-	 * still saying what was last saved. The reader typing has the newer words (the tie bar's reason),
-	 * and a write trims, so refilling a focused field would eat the space just typed after "Iron".
-	 * But a bar left standing idle while an undo or another player changed the label kept the OLD
-	 * words, and Escape then "put back" those, and the next keystroke wrote them over the change.
+	 * ⚠ THE BAR IS REFILLED ONLY WHILE IT HOLDS NOTHING UNSAVED: the label, the side and the italics
+	 * all still what the document had when it was opened. A reader part way through a change keeps it
+	 * until they Save or let go. But a bar left standing untouched while an undo or another player
+	 * changed the person shows the change, so Save never writes the OLD words back over it.
 	 */
 	refresh() {
 		if (!this.isOpen) return;
 		const held = this._personAt(this.id);
 		if (!held) { this.discard(); return; }
-		const field = this.subtitle;
-		const typing = !field || field.ownerDocument?.activeElement === field
-			|| this._timers?.subtitle || field.value !== this._saved;
-		if (!typing) {
-			field.value = held.node?.subtitle ?? "";
-			this._saved = field.value;
-		}
+		if (!this._dirty()) this._fill(held.node, { keepCaret: true });
 		if (held.label) this.el?.setAttribute?.("aria-label", held.label);
+		this._paintTitle(held);
 		this._paintWorn(held);
 		this._at = held.at ?? this._at;
 		this._lift = held.lift ?? this._lift;
 		this._onPicked(this.id);
 		this.place();
+	}
+
+	// ── Moving the bar by its title ─────────────────────────────────────────
+
+	/**
+	 * A PRESS ON THE TITLE (not its x) AND A DRAG MOVE THE BAR, as a window is moved by its title bar,
+	 * so it can be taken off whatever it covers. The pointer is captured on the title, so the drag
+	 * carries on wherever it goes and nothing on the board under it hears it.
+	 */
+	_wireMove() {
+		const head = this.head;
+		if (!head) return;
+		this._on(head, "pointerdown", ev => {
+			if (ev.button !== 0 || ev.target?.closest?.("button")) return;
+			ev.preventDefault();
+			const from = { x: ev.clientX, y: ev.clientY, left: Number.parseFloat(this.el.style.left) || 0, top: Number.parseFloat(this.el.style.top) || 0 };
+			head.setPointerCapture?.(ev.pointerId);
+			const move = e => {
+				this._moved = { left: from.left + e.clientX - from.x, top: from.top + e.clientY - from.y };
+				this.place();
+			};
+			const end = e => {
+				head.releasePointerCapture?.(e.pointerId);
+				head.removeEventListener("pointermove", move);
+				head.removeEventListener("pointerup", end);
+				head.removeEventListener("pointercancel", end);
+			};
+			head.addEventListener("pointermove", move);
+			head.addEventListener("pointerup", end);
+			head.addEventListener("pointercancel", end);
+		});
+	}
+
+	/** Where the bar goes: where the reader dragged it, kept inside the view, or under its person. */
+	place() {
+		if (!this._moved) { super.place(); return; }
+		if (!this.isOpen || !this.el) return;
+		const measured = this._surface()?.viewSize;
+		const room = measured?.width ? measured : this._view?.getBoundingClientRect?.() ?? { width: 0, height: 0 };
+		this._box ??= this.el.getBoundingClientRect?.() ?? { width: 0, height: 0 };
+		const edge = TIE_BAR_EDGE_PX;
+		const maxLeft = Math.max(edge, (room.width || 0) - (this._box.width || 0) - edge);
+		const maxTop = Math.max(edge, (room.height || 0) - (this._box.height || 0) - edge);
+		this.el.style.left = `${Math.round(Math.max(edge, Math.min(this._moved.left, maxLeft)))}px`;
+		this.el.style.top = `${Math.round(Math.max(edge, Math.min(this._moved.top, maxTop)))}px`;
+	}
+
+	// ── The label, its side and its italics ─────────────────────────────────
+
+	/** Fill the bar from the document's copy of one person. `keepCaret` leaves an unchanged box alone. */
+	_fill(node, { keepCaret = false } = {}) {
+		const words = node?.subtitle ?? "";
+		if (this.subtitle && !(keepCaret && this.subtitle.value === words)) this.subtitle.value = words;
+		this._saved = words;
+		this._side = this._savedSide = readSide(node?.side);
+		this._italic = this._savedItalic = readItalic(node?.italic);
+		this._markSide();
+		this._markItalic();
+	}
+
+	/** Whether the bar holds anything the document does not: words, a side or the italics. */
+	_dirty() {
+		const words = this.subtitle?.value ?? this._saved;
+		return words !== this._saved || this._side !== this._savedSide || this._italic !== this._savedItalic;
+	}
+
+	_markSide() {
+		for (const radio of this.sides) radio.checked = radio.value === this._side;
+	}
+
+	/** "Label for Lord Elroy", over the bar. */
+	_paintTitle(held) {
+		if (this.title) this.title.textContent = held?.title ?? "";
+	}
+
+	_markItalic() {
+		if (this.italicBox) this.italicBox.checked = this._italic;
+	}
+
+	/**
+	 * SAVE: whichever of the label, the side and the italics changed, as one write and one step of the
+	 * undo, and the bar put away. Nothing changed, nothing is written, and the bar still goes.
+	 * @returns {Promise<*>|undefined}  the write, where there was one.
+	 */
+	_save() {
+		if (!this.id) return undefined;
+		// ⚠ WITH THE CHIP FORM OPEN, SAVE KEEPS THE CHIP TOO, as the form's own Save would. Putting the
+		// bar away closes the form, and a chip named and coloured there was lost with it.
+		if (this._chip) return this._saveWithChip();
+		return this._saveLabel();
+	}
+
+	/**
+	 * The chip form first, then the label: a chip with a name is saved; a NEW one never named is let go,
+	 * as nothing was made; an existing one whose name was rubbed out is asked about, and nothing is saved
+	 * until it has one, since saving the label and closing would lose the reader's edit to it.
+	 */
+	async _saveWithChip() {
+		const named = chipNameOf(this.chipName?.value ?? "");
+		if (named) {
+			await this._saveChip();
+		} else if (this._chip?.id) {
+			this._onNeedName();
+			this.chipName?.focus?.();
+			return undefined;
+		} else {
+			this._closeForm();
+		}
+		return this._saveLabel();
+	}
+
+	/** The label, the side and the italics: whichever changed, in one write, and the bar put away. */
+	_saveLabel() {
+		if (!this.id) return undefined;
+		const id = this.id;
+		const fields = {};
+		const words = subtitleOf(this.subtitle?.value ?? "");
+		if (words !== subtitleOf(this._saved)) fields.subtitle = words;
+		if (this._side !== this._savedSide) fields.side = this._side;
+		if (this._italic !== this._savedItalic) fields.italic = this._italic;
+		if (!Object.keys(fields).length) { this.dismiss(); return undefined; }
+		// ⚠ SAID, NOT DROPPED QUIETLY: edit rights taken away while the bar was up (the GM changing who
+		// owns the map) would otherwise lose the change with nothing on screen to say so.
+		if (!this._canEdit()) {
+			globalThis.ui?.notifications?.warn?.(localize("RELMAP.editLost"));
+			return undefined;
+		}
+		this._saved = this.subtitle ? this.subtitle.value : words;
+		this._savedSide = this._side;
+		this._savedItalic = this._italic;
+		const write = this._onField(id, fields);
+		this.dismiss();
+		return write;
+	}
+
+	/**
+	 * NOTHING IS WRITTEN BUT ON SAVE. Every way of letting go of a bar asks it to flush, and for this one
+	 * that keeps nothing: what is not saved is put back, so the next opening starts from the document.
+	 */
+	flush() {
+		return undefined;
+	}
+
+	_forgetWriting() {
+		super._forgetWriting();
+		this._side = this._savedSide;
+		this._italic = this._savedItalic;
+		this._markSide();
+		this._markItalic();
 	}
 
 	// ── Chips ───────────────────────────────────────────────────────────────
@@ -445,12 +634,18 @@ export class RelmapPersonBar extends RelmapBoardBar {
 		this._closeMenu();
 		this._closeForm();
 		super.close();
+		// Let go, it is put back under its person the next time it opens.
+		this._moved = null;
 	}
 
 	destroy() {
 		this._closeMenu();
 		super.destroy();
 		this.subtitle = null;
+		this.sides = [];
+		this.italicBox = null;
+		this.title = null;
+		this.head = null;
 		this.worn = null;
 		this.addChip = null;
 		this.form = null;

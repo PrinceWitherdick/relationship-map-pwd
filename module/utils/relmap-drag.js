@@ -262,7 +262,7 @@ function clearTravel(el) {
  *                                      put the focus back on.
  * @param {Function} handlers.onRemoveGroup `id => void` — Delete on a group's name.
  * @param {Function} handlers.onPickPerson `(id, from) => void` — the label under somebody's name
- *                                      (`[data-relmap-subtitle]`) clicked, or Enter on it: raise the
+ *                                      (`[data-relmap-subtitle]`), their chips or their name clicked, or Enter on the label: raise the
  *                                      bar that changes it. `from` is the element, for Escape.
  * @param {Function} handlers.onResizeMove `(id, corner, {left, top}, {square}) => void` — one of a held
  *                                      group's corners (`[data-relmap-grip]`) is being dragged, and the
@@ -1291,8 +1291,9 @@ export function wireRelmapDrag(root, {
 		// THE LABEL UNDER A NAME ("Iron Knight", "Add a label"), pressed and not dragged: its bar goes
 		// up. A press that travels is still the person's drag, as one on the name is, and `swallowClick`
 		// above has already eaten the click that drag would have left behind.
-		// THE CHIPS UNDER IT ("Dead") are the same press: they live on the same bar.
-		const subtitle = ev.target.closest?.("[data-relmap-subtitle], [data-relmap-chips]");
+		// THE CHIPS UNDER IT ("Dead") are the same press: they live on the same bar. AND SO IS THE NAME
+		// over them: a click on somebody's name raises the bar that edits their label and chips.
+		const subtitle = ev.target.closest?.("[data-relmap-subtitle], [data-relmap-chips], .relmap-name");
 		// ⚠ EXCEPT WITH "DRAW LINES" ARMED, when the label is the person as the face is, and the click is
 		// the tool's (below). Raising the bar instead left the aim live with its band following the
 		// pointer, and Escape in the field then went to the aim and not to the words.

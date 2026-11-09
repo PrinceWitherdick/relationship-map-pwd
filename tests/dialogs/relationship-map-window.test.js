@@ -1369,6 +1369,32 @@ describe("what a portrait says when it is rested on", () => {
 		expect(held.at.top).toBeGreaterThan(30);
 		expect(app._personAt("somebody-else")).toBeNull();
 	});
+
+	// WHERE THE WORDS STAND, AND THE ITALICS, for the board; a label's lines heard as a list.
+	it("carries each person's side and italics, and says a label's lines one after another", () => {
+		const cast = foundry.utils.deepClone(CAST);
+		cast.nodes.elena.subtitle = "The Iron Knight\nLord of the Vale";
+		cast.nodes.elena.side = "left";
+		cast.nodes.elena.italic = false;
+		const { app } = windowFor(cast, { isOwner: false });
+		const nodes = Object.fromEntries(app._boardContext(app._plan()).nodes.map(node => [node.id, node]));
+		expect(nodes.elena).toMatchObject({ side: "left", upright: true });
+		expect(nodes.ghost).toMatchObject({ side: "below", upright: false });
+		expect(nodes.elena.tooltip).toMatch(/^Elena, The Iron Knight, Lord of the Vale\b/);
+	});
+
+	// Words standing over or beside the face leave the bar to open just under the face itself.
+	it("opens the bar just under the face for somebody whose words stand elsewhere", () => {
+		const cast = foundry.utils.deepClone(CAST);
+		cast.nodes.elena.subtitle = "Iron Knight";
+		const below = windowFor(cast).app;
+		below._boardContext(below._plan());
+		cast.nodes.elena.side = "above";
+		const above = windowFor(cast).app;
+		above._boardContext(above._plan());
+		expect(above._personAt("elena").at.top).toBeLessThan(below._personAt("elena").at.top);
+		expect(above._personAt("elena").at.top).toBeGreaterThan(30);
+	});
 });
 
 // THE MARK BEHIND THE TRASH CAN. A right press on a portrait arms one (utils/relmap-drag.js

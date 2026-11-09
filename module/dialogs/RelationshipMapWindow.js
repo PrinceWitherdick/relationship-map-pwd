@@ -39,7 +39,8 @@ import {
 import {
 	RELMAP_CHIP_ICONS, RELMAP_CHIP_NAME_MAX,
 	RELMAP_DASHES, RELMAP_DASH_DEFAULT, RELMAP_DIRS, RELMAP_FLAG, RELMAP_GROUP_DASHES, RELMAP_GROUP_SHAPES, RELMAP_INKS,
-	RELMAP_LABEL_MAX, RELMAP_SUBTITLE_MAX, RELMAP_SEAT_MIN, RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN,
+	RELMAP_LABEL_MAX, RELMAP_SIDES, RELMAP_SIDE_DEFAULT, RELMAP_SUBTITLE_LINES, RELMAP_SUBTITLE_MAX, RELMAP_SEAT_MIN,
+	RELMAP_SIZES, RELMAP_SIZE_MAX, RELMAP_SIZE_MIN,
 	addEdgePatch, addGroupPatch, chipPatch, chipsWorn, dropChipPatch, nodeChipsPatch,
 	dropEdgePatch, dropGroupPatch, dropNodePatch, edgePatch, fanIndexes,
 	groupMembersPatch, groupPatch, nodePatch, pruneDeadPatch, readSeat, seatArrivals, takenSpots,
@@ -765,6 +766,17 @@ export class RelationshipMapWindow extends RelmapDialog {
 				label: localize("RELMAP.subtitle.field"),
 				placeholder: localize("RELMAP.subtitle.placeholder"),
 				maxLength: RELMAP_SUBTITLE_MAX,
+				lines: RELMAP_SUBTITLE_LINES,
+				hint: format("RELMAP.subtitle.hint", { max: RELMAP_SUBTITLE_LINES }),
+				// WHERE THE NAME, LABEL AND CHIPS GO, one radio per side, and whether the label is italic.
+				// Nothing on this part of the bar is written until Save.
+				where: localize("RELMAP.subtitle.where"),
+				// Above first, as the reader asked, then below, left and right. The store's list is not reordered.
+				sides: ["above", "below", "left", "right"].filter(key => RELMAP_SIDES.includes(key))
+					.map(key => ({ key, name: localize(`RELMAP.subtitle.side.${key}`) })),
+				italic: localize("RELMAP.subtitle.italic"),
+				save: localize("RELMAP.subtitle.save"),
+				close: localize("RELMAP.subtitle.close"),
 				// THE CHIPS' WORDS. `edit` and `off` are PATTERNS with `{chip}` left in: the bar fills in
 				// which chip, and carries no i18n of its own.
 				chips: {
@@ -1165,30 +1177,34 @@ export class RelationshipMapWindow extends RelmapDialog {
 			// actor's: it is what the person is on this board. Folded into the face's sentence too, so a
 			// reader who cannot see the chip under it still hears it.
 			const subtitle = node.subtitle ?? "";
+			// Its lines as a screen reader hears them: "The Iron Knight, Lord of the Vale".
+			const spoken = subtitle.split("\n").join(", ");
 			// AND THE CHIPS ("Dead"), in the rows they are drawn in, which are the rows every outline
 			// reaches round: laid out once by the read (relmap-store.js `normalizeGraph`, `chipLaid`).
 			// Spoken with the name too: "Simon, Deceased, Dead". The rows and then the hidden ones are
 			// the worn order.
 			const laid = node.chipLaid ?? NO_CHIPS;
 			const worn = [...laid.rows.flat(), ...laid.hidden];
-			const called = [name, subtitle, ...worn.map(chip => chip.name)].filter(Boolean).join(", ");
+			const called = [name, spoken, ...worn.map(chip => chip.name)].filter(Boolean).join(", ");
 			return {
 				id,
 				name,
 				subtitle,
+				// Where the name, label and chips stand round the face, and whether the label is italic.
+				side: node.side ?? RELMAP_SIDE_DEFAULT,
+				// Said as the exception, so a label with nothing said about it stays italic, as it always was.
+				upright: node.italic === false,
 				// Each row as its pills' markup, built by the one builder the person bar uses too, and
 				// printed by the template as it stands (escaped here, once).
 				chipRows: laid.rows.map(row => row.map(chip => chipPillHtml(chipPaint(chip, paint))).join("")),
+				// "+N" for the chips that did not fit; the face's tooltip names them.
 				chipMore: laid.hidden.length
-					? {
-						label: format("RELMAP.chips.more", { count: laid.hidden.length }),
-						tooltip: laid.hidden.map(chip => chip.name).join(", "),
-					}
+					? { label: format("RELMAP.chips.more", { count: laid.hidden.length }) }
 					: null,
 				// The button's spoken name REPLACES its visible words, so it says them too, ahead of what
 				// a press does: "Iron Knight. Change the label under Lord Elroy".
 				subtitleLabel: subtitle
-					? `${subtitle}. ${format("RELMAP.subtitle.edit", { name })}`
+					? `${spoken}. ${format("RELMAP.subtitle.edit", { name })}`
 					: format("RELMAP.subtitle.edit", { name }),
 				left: node.x,
 				top: node.y,
@@ -4508,14 +4524,19 @@ export class RelationshipMapWindow extends RelmapDialog {
 		// WHERE THEY STAND NOW, an arrow-key nudge not yet written (or not yet back) included: read off
 		// the paint alone, Enter on a label just after a nudge opened the bar where they had been.
 		const spot = this._nodeAt(id, graph) ?? node;
+		// Under the name as the reader has it sized (`personReach`), which is where the label is drawn;
+		// for somebody whose words stand over or beside the face, just under the face itself.
+		const below = (node.side ?? RELMAP_SIDE_DEFAULT) === RELMAP_SIDE_DEFAULT;
+		const drop = below ? personReach(this._drawn?.scales?.name).subTop : RELMAP_NODE_PX / 2 + 4;
 		return {
 			node,
-			// Under the name as the reader has it sized (`personReach`), which is where the label is drawn.
-			at: { left: spot.x, top: spot.y + (personReach(this._drawn?.scales?.name).subTop / board.height) * 100 },
+			at: { left: spot.x, top: spot.y + (drop / board.height) * 100 },
 			// The top of the face, for a bar with no room below it to sit above the person instead.
 			lift: { left: spot.x, top: spot.y - (RELMAP_NODE_PX / 2 / board.height) * 100 },
 			// What a screen reader hears the bar called: WHOSE label it is, by the name as painted.
 			label: format("RELMAP.subtitle.bar", { name: this._nameOf(graph, id) }),
+			// And the title over the bar: "Label for Lord Elroy".
+			title: format("RELMAP.subtitle.title", { name: this._nameOf(graph, id) }),
 			// The chips they wear, in the order the board draws them.
 			chips: chipsWorn(node, graph),
 		};
@@ -4599,9 +4620,14 @@ export class RelationshipMapWindow extends RelmapDialog {
 	 * ⚠ ITS OWN COALESCE KEY, never `node:<id>`: that is the arrow keys' nudge of one person, and a
 	 * label typed and a nudge made within the fold window would come back as ONE undo step.
 	 */
+	/**
+	 * The person bar's Save: the label, the side and the italics, only those that changed, as ONE write
+	 * and one step of the undo. Never folded into the step before it: each Save is a change the reader
+	 * chose to make.
+	 */
 	_writeSubtitle(id, fields) {
 		return this._write(nodePatch(id, fields), {
-			label: localize("RELMAP.history.editedPerson"), coalesce: `subtitle:${id}`,
+			label: localize("RELMAP.history.editedPerson"),
 			onto: { kind: "nodes", id },
 		});
 	}

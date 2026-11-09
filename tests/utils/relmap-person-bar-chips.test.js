@@ -210,6 +210,46 @@ describe("the chip form", () => {
 		expect(handlers.onSaveChip).toHaveBeenCalledWith("n1", "c1", { name: "Noble", icon: "fa-ghost", ink: "#336699" });
 	});
 
+	// ⚠ THE BAR'S OWN SAVE, AT THE FOOT, WITH THE FORM STILL OPEN: it keeps the chip as the form's Save
+	// would, then the label. It used to put the bar away and the chip went with the form.
+	it("saves the chip in the open form, then the label, when the bar's own Save is pressed", async () => {
+		openNew();
+		$("[data-relmap-pbar='chipname']").value = "Outcast";
+		press("[data-relmap-pbar='chipicon'][data-relmap-pbar-value='fa-crown']");
+		$("[data-relmap-pbar='subtitle']").value = "Exile";
+		press("[data-relmap-pbar='save']");
+		await vi.waitFor(() => expect(handlers.onField).toHaveBeenCalled());
+		expect(handlers.onSaveChip).toHaveBeenCalledWith("n1", null, { name: "Outcast", icon: "fa-crown", ink: "slate" });
+		expect(handlers.onSaveChip.mock.invocationCallOrder[0]).toBeLessThan(handlers.onField.mock.invocationCallOrder[0]);
+		expect(handlers.onField).toHaveBeenCalledWith("n1", { subtitle: "Exile" });
+		expect(el.hidden).toBe(true);
+	});
+
+	it("lets a new chip that was never named go, and still saves the label", async () => {
+		openNew();
+		$("[data-relmap-pbar='subtitle']").value = "Exile";
+		press("[data-relmap-pbar='save']");
+		await vi.waitFor(() => expect(handlers.onField).toHaveBeenCalledWith("n1", { subtitle: "Exile" }));
+		expect(handlers.onSaveChip).not.toHaveBeenCalled();
+		expect(handlers.onNeedName).not.toHaveBeenCalled();
+		expect(el.hidden).toBe(true);
+	});
+
+	it("saves nothing, and stays open, while a worn chip's name has been rubbed out", async () => {
+		state.chips = [DEAD, NOBLE];
+		bar.open("n1");
+		press(".relmap-personbar-worn button[data-relmap-pbar-value='c1']");
+		$("[data-relmap-pbar='chipname']").value = "  ";
+		$("[data-relmap-pbar='subtitle']").value = "Exile";
+		press("[data-relmap-pbar='save']");
+		await Promise.resolve();
+		expect(handlers.onNeedName).toHaveBeenCalled();
+		expect(handlers.onSaveChip).not.toHaveBeenCalled();
+		expect(handlers.onField).not.toHaveBeenCalled();
+		expect(el.hidden).toBe(false);
+		expect($(".relmap-chipform").hidden).toBe(false);
+	});
+
 	it("asks to delete a chip, and stays open if the reader thinks better of it", async () => {
 		bar.open("n1");
 		press(".relmap-personbar-worn button[data-relmap-pbar-value='dead']");

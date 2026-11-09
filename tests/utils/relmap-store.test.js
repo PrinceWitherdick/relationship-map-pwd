@@ -151,7 +151,7 @@ describe("the shape of a write", () => {
 		const patch = addNodePatch("elena", { uuid: "Actor.a1", name: "Elena", x: 20, y: 30 });
 		expect(Object.keys(patch).sort()).toEqual([
 			`${PREFIX}.nodes.elena.img`, `${PREFIX}.nodes.elena.name`, `${PREFIX}.nodes.elena.note`,
-			`${PREFIX}.nodes.elena.subtitle`,
+			`${PREFIX}.nodes.elena.subtitle`, `${PREFIX}.nodes.elena.side`, `${PREFIX}.nodes.elena.italic`,
 			`${PREFIX}.nodes.elena.uuid`, `${PREFIX}.nodes.elena.x`, `${PREFIX}.nodes.elena.y`,
 		].sort());
 	});
@@ -407,7 +407,7 @@ describe("reading a stored map back", () => {
 			edges: {},
 		});
 		expect(Object.keys(g.nodes.elena).sort())
-			.toEqual(["chips", "img", "name", "note", "subtitle", "uuid", "x", "y"]);
+			.toEqual(["chips", "img", "italic", "name", "note", "side", "subtitle", "uuid", "x", "y"]);
 	});
 
 	// ⚠ EMPTY AND NOT ABSENT on every person put down before labels existed: the undo stack records a

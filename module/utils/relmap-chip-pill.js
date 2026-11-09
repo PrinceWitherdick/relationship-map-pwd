@@ -24,7 +24,7 @@ export const inkStyle = paint => (paint.inkHex ? `--relmap-ink-raw:${paint.inkHe
 export function chipPillHtml(paint, { tag = "span", attrs = "" } = {}) {
 	const style = paint.inkHex ? ` style="${esc(inkStyle(paint))}"` : "";
 	const icon = paint.icon ? `<i class="fas ${esc(paint.icon)}" aria-hidden="true"></i>` : "";
-	return `<${tag} class="relmap-chip ${esc(inkClass(paint))}"${attrs}${style}`
-		+ ` data-tooltip-text="${esc(paint.name)}">${icon}`
+	// No tooltip: the pill says its own name, and the face's tooltip lists every chip the person wears.
+	return `<${tag} class="relmap-chip ${esc(inkClass(paint))}"${attrs}${style}>${icon}`
 		+ `<span class="relmap-chip-text">${esc(paint.name)}</span></${tag}>`;
 }

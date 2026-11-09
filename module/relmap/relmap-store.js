@@ -16,7 +16,7 @@ import { MODULE_ID } from "../module-id.js";
 import { deletionEntry } from "../utils/foundry-compat.js";
 import {
 	RELMAP_BOARD_ASPECT, RELMAP_CAPTION_FLOOR_PX, RELMAP_CAPTION_PX, boardMetrics, chipLayout, clampReach,
-	freeSpot, personReach, readGroupGrow, ringsLayout, underReach,
+	freeSpot, personReach, plateReach, readGroupGrow, ringsLayout, sideOf, underReach,
 } from "../utils/relmap-geometry.js";
 import { clipText } from "../utils/strings.js";
 import { normalizeHex } from "./relmap-ink.js";
@@ -300,10 +300,39 @@ export const RELMAP_NAME_MAX = 120;
 /**
  * How long the label under a person's name may be ("Iron Knight", "Deceased", "Acolyte of the
  * Celebrated Seer"). It belongs to the person ON THIS MAP, never to the actor, so one face can be
- * "Squire" on one board and "Deceased" on another. Drawn at most two lines deep under the name, so it
+ * "Squire" on one board and "Deceased" on another. Drawn at most three lines deep under the name, so it
  * is a title and not a biography; the note is where the story goes.
+ *
+ * ENTER MAKES A NEW LINE, up to `RELMAP_SUBTITLE_LINES` of them ("The Iron Knight" / "Lord of the
+ * Vale"), and a long line still wraps; however it got there, no more than that many lines are drawn.
+ * The line breaks are stored in the one string, so a label written before lines existed reads as it did.
  */
-export const RELMAP_SUBTITLE_MAX = 80;
+export const RELMAP_SUBTITLE_MAX = 120;
+export const RELMAP_SUBTITLE_LINES = 3;
+
+/**
+ * WHERE A PERSON'S NAME, LABEL AND CHIPS STAND ROUND THEIR FACE: under it, as every board has always
+ * drawn them, or above it, or to its left or right, chosen per person in their bar, for a board where
+ * the lines run over the words under somebody. The three move together as one block.
+ *
+ * Unknown and absent both read as below, so a board stored before this field existed draws exactly as
+ * it did, with no migration. After Dom Bosco's tags pull request (domfortunato), which brought the idea.
+ */
+export const RELMAP_SIDES = Object.freeze(["below", "above", "left", "right"]);
+export const RELMAP_SIDE_DEFAULT = "below";
+
+/** One stored side, read safely. Unknown and absent both read as below. */
+export function readSide(value) {
+	return RELMAP_SIDES.includes(value) ? value : RELMAP_SIDE_DEFAULT;
+}
+
+/**
+ * Whether a person's label is set in italics. It always was, so only a stored `false` turns it upright:
+ * absent, and anything else, read as italic, and no board stored before this field existed changes look.
+ */
+export function readItalic(value) {
+	return value !== false;
+}
 
 /** How long the notes behind a line or a person may be. Where the prose that will not fit on the
  * board goes, so it is generous: nothing on the board is measured against it. */
@@ -427,7 +456,15 @@ const str = (v, max = 0) => {
  * A label under a name, TRIMMED: one of only spaces is no label. Kept, it drew a blank chip where
  * "Add a label" belongs and made every outline round that person reach for words nobody can see.
  */
-const subtitleOf = v => str(v, RELMAP_SUBTITLE_MAX).trim();
+export function subtitleOf(v) {
+	// LINE BY LINE: spaces inside a line collapse, blank lines go, and only the first
+	// `RELMAP_SUBTITLE_LINES` stay, so a paste of a paragraph cannot hang a column under somebody.
+	const lines = str(v).split(/\r\n?|\n/)
+		.map(line => line.replace(/\s+/g, " ").trim())
+		.filter(Boolean)
+		.slice(0, RELMAP_SUBTITLE_LINES);
+	return clipText(lines.join("\n"), RELMAP_SUBTITLE_MAX).trim();
+}
 
 /**
  * One stored `{key: true}` set read safely (a person's chips, a group's members): the keys switched
@@ -500,6 +537,10 @@ export function normalizeGraph(raw) {
 			// the old value off this read (relmap-history.js `describeWrite`), so a label absent here is a
 			// label nobody can take back. Absent on every person put down before it existed: no migration.
 			subtitle: subtitleOf(node.subtitle),
+			// Where the name, label and chips stand, and whether the label is in italics: emitted on every
+			// node for the same reason, so a change to either can be taken back. Absent reads as below, italic.
+			side: readSide(node.side),
+			italic: readItalic(node.italic),
 			// Emitted on every node for the same reason, and only chips this board defines: a deleted
 			// chip's leaf stays in the flag, unread, so undoing the deletion brings it back on everyone.
 			chips: readKeySet(node.chips, chipId => !!graph.chips[chipId]),
@@ -625,6 +666,8 @@ const NODE_GATES = Object.freeze({
 	name: v => str(v, RELMAP_NAME_MAX),
 	note: v => str(v, RELMAP_NOTE_MAX),
 	subtitle: subtitleOf,
+	side: readSide,
+	italic: readItalic,
 });
 
 const EDGE_GATES = Object.freeze({
@@ -681,9 +724,10 @@ export function edgePatch(id, fields = {}) {
 /** Put somebody on the map. Every field written, so the node is whole from its first write. */
 export function addNodePatch(id, {
 	uuid = null, name = "", img = "", x = 50, y = 50, note = "", subtitle = "", chips = {},
+	side = RELMAP_SIDE_DEFAULT, italic = true,
 } = {}) {
 	// The label and chips too: undoing a removal puts the person back through here, label and all.
-	const patch = nodePatch(id, { uuid, name, img, x, y, note, subtitle });
+	const patch = nodePatch(id, { uuid, name, img, x, y, note, subtitle, side, italic });
 	if (!patch) return null;
 	const worn = Object.keys(chips ?? {}).filter(chipId => chips[chipId]);
 	return { ...patch, ...(nodeChipsPatch(id, worn) ?? {}) };
@@ -909,6 +953,9 @@ export function pruneDeadPatch(raw) {
 export function takenSpots(graph) {
 	const reach = personReach();
 	return Object.values(graph?.nodes ?? {}).map(n => {
+		// Somebody whose words stand over or beside the face holds THAT box (`plate`, board pixels).
+		const side = sideOf(n);
+		if (side !== "below") return { left: n.x, top: n.y, side, plate: plateReach(n, reach) };
 		const { x, down } = underReach(n, reach);
 		return down ? { left: n.x, top: n.y, under: down, across: x } : { left: n.x, top: n.y };
 	});
@@ -967,7 +1014,7 @@ export function seatArrivals(graph, people = [], newId = () => foundry.utils.ran
 		const spot = seats?.[index] ?? freeSpot(taken, room);
 		nodes[id] = {
 			uuid: person.uuid, name: person.name ?? "", img: person.img ?? "",
-			x: spot.left, y: spot.top, note: "",
+			x: spot.left, y: spot.top, note: "", side: RELMAP_SIDE_DEFAULT, italic: true,
 		};
 		taken.push(spot);
 		seated.push(nodeIdentity(person));
